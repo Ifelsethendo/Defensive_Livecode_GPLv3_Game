@@ -1,0 +1,67 @@
+--// script of button "MissileScript" of stack "Defensive"
+--// Missile Script October 05, 2021
+local missileDir = "right"
+local activeRect = "0,0,900,900"
+local missileSpeed =28
+local mxDir=0
+local originLoc
+local activatedMissile=false
+local bPaused=false
+
+on RecordOrigin
+   put the loc of me into originLoc
+   set the originXY of me to originLoc
+end RecordOrigin
+
+--// activates missils, sets object at player location uses the given player direction (pDir) to set direction of travel.
+on ActivateMissile pDir
+   if activatedMissile is true then exit ActivateMissile
+   put true into activatedMissile
+   put the OriginXY of me into OriginLoc
+   put pDir into missileDir
+   
+   set the width of me to 2+random(30)
+   set the height of me to 1+random(4)
+   
+   put  "0,0," &  stackDepth() into activeRect
+   put loc of graphic "player" into playerXY
+   set the loc of me to playerXY
+   send MissileFly to me in 0 milliseconds
+end ActivateMissile
+
+on PauseActivity
+   put true into bPaused
+end PauseActivity
+
+on ResumeActivity
+   put false into bPaused
+   if activatedMissile is true then MissileFly
+end ResumeActivity
+
+--// travels until it leaves the screen or is sent DeactivateMissile by stack's CheckCollision
+on MissileFly
+   if bPaused is true then exit MissileFly
+   if the tool is not "browse tool" then  exit MissileFly
+   --if the mouseLoc is not within the rect of this card then exit MissileFly
+   if missileDir is "left" then put missileSpeed*-1 into mxDir
+   if missileDir is "right" then put missileSpeed into mxDir
+   put the loc of me into miXY
+   add mxDir to item 1 of miXY
+   set the loc of me to miXY
+   if the loc of me is within activeRect then 
+      send MissileFly to me in 2 milliseconds
+   else
+      DeactivateMissile
+   end if
+end MissileFly
+
+--// disables the missile, returns it to it's origin, sends InactiveMissiles to remove it's name from activeMIssile list 
+on DeactivateMissile
+   set the width of me to 8
+   set the height of me to 8
+   put false into activatedMissile
+   if the number of items of OriginLoc < 2 then put the OriginXY of me into OriginLoc
+   set the loc of me to originLoc
+   InactiveMissile (the short name of me)
+end DeactivateMissile
+

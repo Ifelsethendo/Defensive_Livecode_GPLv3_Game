@@ -1,0 +1,4 @@
+This is the bulk of the scripts, there's more inside the Livecode binary file.
+You should be able to use these scripts to make a basic game with Livecode,
+then if you want you can simply copy past things like the OptionsGroup from the Defensive 
+stack, change the colors and you're good to go with your own GPL v3.0 game.

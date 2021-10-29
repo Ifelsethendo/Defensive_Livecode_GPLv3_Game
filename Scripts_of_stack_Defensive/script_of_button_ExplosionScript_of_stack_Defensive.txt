@@ -1,0 +1,139 @@
+--// Script of button "ExplosionScript" of stack "Defensive"
+local exploded=false
+local exDeltaX=0
+local exDeltaY=0
+local explodeLoc="0,0"
+local exBlend=0
+local fadeDelay=0
+local fadeDelayCount=0
+local originLoc
+local bPaused=false
+
+on RecordOrigin
+   put the loc of me into originLoc
+   set the originXY of me to originLoc
+end RecordOrigin
+
+-- set up explosion object for action
+on explode eX,eY
+   if exploded is true then exit explode
+   --resetExplosion
+   set the loc of me to eX,eY
+   put true into exploded
+   --// choose a virtual destination to explode to
+   put stackDepth() into scrXY
+   put random(item 1 of scrXY) into destX 
+   put random(item 2 of scrXY) into destY
+   
+   --// get delta to the target location
+   put DeltaToTarget(eX,eY,destX,destY) into DxDy
+   
+   --// delta values modify  object location each loop
+   put item 1 of DxDy  into exDeltaX
+   put item 2 of DxDy  into exDeltaY
+   
+   put 0 into exBlend
+   put random(5) into fadeDelay
+   put 0 into fadeDelayCount
+   --// explode!
+   Exploding
+end explode
+
+on ResumeActivity
+   put false into bPaused
+   if exploded is true then Exploding
+end ResumeActivity
+
+on PauseActivity
+   put true into bPaused
+end PauseActivity
+
+
+on Exploding
+   if exploded is false then exit exploding
+   --// BLEND LEVEL determines life of explosion
+   add 1 to fadeDelayCount
+   if fadeDelayCount > fadeDelay then
+      add 15 to exBlend
+      set the blendLEvel of me to exBlend
+      if exBlend > 50 then put false into exploded 
+   end if
+   
+   --// POSITION
+   put the loc of me into explodeLoc
+   put item 1 of explodeLoc+ exDeltaX*random(5) into item 1 of explodeLoc
+   put item 2 of explodeLoc+ exDeltaY*random(5) into item 2 of explodeLoc
+   set the loc of me to explodeLoc
+   
+   --// DASHES
+   put  the dashes of me into exDash
+   put item -1 of exDash into DS
+   if DS is empty or DS is 0 then put 0 into DS
+   if DS > 5 then put 0 into DS
+   add 1 to DS
+   put DS & comma & DS into exDash
+   set the dashes of me to exDash
+   
+   --// ANGLES
+   put the angle of me into ang
+   add 5 to ang
+   if ang > 359 then put 0 into ang
+   set the angle of me to ang
+   
+   --// LINE SIZE
+   put the lineSize of me into mLin
+   if mLin > 1 then subtract 1 from mLin
+   set the lineSize of me to mLin
+   
+   --// HEIGHT and WIDTH
+   put the height of me into mH
+   put the width of me into mW
+   add random(10)-random(10) to mH
+   set the height of me to mH
+   add random(10)-random(10) to mW
+   set the width of me to mW
+   
+   --// glow
+   put the outerGlow["spread"] of me into oSpr
+   put the outerGlow["size"] of me into oSiz
+   add random(12) to oSpr
+   add random(12) to oSiz
+   set the  outerGlow["spread"] of me to oSpr
+   set the  outerGlow["size"] of me to oSiz
+   
+   if  exploded  is false then 
+      DeactivateExplosion
+   else
+      send exploding to me in 100 milliseconds
+   end if
+end Exploding
+
+--// rest the explosion object 
+on resetExplosion
+   put false into exploded 
+   put char -1 of the short name of me into N
+   if the number of items of originLoc < 2 then put the originXY of me into originLoc
+   set the loc of me to originLoc
+   set the BlendLevel of me to 0
+   set the angle of me to 0
+   set the dashes of me to 0
+   set the polySides of me to random(7)+2
+   set the width of me to random(10)+12
+   set the Height of me to random(10)+12
+   set the lineSize of me to random(7)+3
+   put random(100)+155 into R
+   put random(100)+155 into G
+   put random(100)+155 into B
+   set the  outerGlow["color"] of me to R,G,B
+   set the  outerGlow["spread"] of me to random(4)+4
+   set the  outerGlow["size"] of me to random(4)+4
+   set the foregroundColor of me to R,G,B
+end resetExplosion
+
+--// here so as not to throw an error
+on DeactivateExplosion
+   resetExplosion
+   ClearActiveSoundPlayers "Explode"
+end DeactivateExplosion
+
+

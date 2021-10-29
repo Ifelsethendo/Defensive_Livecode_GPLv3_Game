@@ -1,0 +1,273 @@
+--// Script of button "EnemyScript" of stack "Defensive"
+local enemyActivated=false
+local EspeedX=0, EspeedY=0
+local targetLoc = "0,0"
+local targetRect = "0,0,0,0"
+local hMod=3,wMod=3
+local bulletDelay=0
+local enemyXY
+local originLoc
+local stackRect
+local enemyFireRate
+local bPaused=false
+local soundActivated=false
+local numberOfDestinations=0
+local wingdings="LR]lmnopstuvw{¡¢£¤¥¦§¨©ª«¬­®¯°±²³µ¶"
+
+
+on RecordOrigin
+   put the loc of me into originLoc
+   set the OriginXY of me to originLoc
+end RecordOrigin
+
+on PauseEnemySound
+   put false into soundActivated
+end PauseEnemySound
+
+--// activate the enemy, get a fire rate, store origin point to return to, signal spawn, destination and travel scripts.
+on ActivateEnemy
+   put "0,0," & stackDepth() into stackRect
+   if enemyActivated is true then exit ActivateEnemy
+   put the OriginXY of me into OriginLoc
+   put 2+random(4) into hMod
+   put 2+random(4) into wMod
+   put true into enemyActivated
+   put random(30)+10 into enemyFireRate 
+   send EnemySpawnLoc to me in 1 milliseconds
+   send EnemyCenterTargetLoc to me in 20 milliseconds
+   put 3+random(8) into numberOfDestinations
+   set the label of me to char random(number of chars of wingdings) of wingdings
+   set the textFont of me to "Wingdings"
+   set the textSize of me to 10+random(10)
+   -- fly enemy fly!
+   send EnemyTravel to me in 60 milliseconds
+   put false into soundActivated
+end ActivateEnemy
+
+--// spawn somewhere off screen
+on EnemySpawnLoc
+   put the loc of me into enemyXY 
+   put random (100) into rX
+   if rX > 50 then 
+      put -30 into  item 1 of enemyXY
+   else
+      put width of this stack+30 into item 1 of enemyXY
+   end if
+   put random (100) into rY
+   if ry > 50 then 
+      put random(height of this stack)+ 30  into item 2 of enemyXY
+   else
+      put -30 into item 2 of enemyXY
+   end if
+   set the loc of me to enemyXY
+end EnemySpawnLoc
+
+--// pick first target center of the screen
+on EnemyCenterTargetLoc
+   put CenterScreen() into CSxy
+   put the loc of me into enemyXY
+   put item 1 of enemyXY into eX
+   put item 2 of enemyXY into eY
+   put random(100)-random(100) +item 1 of CSXY  into destX
+   put random(100)-random(100) +item 2 of CSXY into destY
+   put   destX & comma & destY into targetLoc
+   put  destX-50, destY-50, destX+50, destY+50 into targetRect
+   --// get delta to the target location
+   put DeltaToTarget(eX,eY,destX,destY) into DxDy
+   --// delta values modify  object location each loop
+   put item 1 of DxDy  into EspeedX
+   put item 2 of DxDy  into EspeedY
+   subtract 1 from numberOfDestinations
+end EnemyCenterTargetLoc
+
+
+--// pick  target at edges of the screen
+on EnemyScreenTargetLoc
+   put CenterScreen() into CSxy
+   put stackDepth() into HW
+   put the loc of me into enemyXY
+   put item 1 of enemyXY into eX
+   put item 2 of enemyXY into eY
+   put  100+Random(item 1 of HW-200) into destX
+   put  100+Random(item 2 of HW-200) into destY
+   put   destX & comma & destY into targetLoc
+   put  destX-50, destY-50, destX+50, destY+50 into targetRect
+   --// get delta to the target location
+   put DeltaToTarget(eX,eY,destX,destY) into DxDy
+   --// delta values modify  object location each loop
+   put item 1 of DxDy  into EspeedX
+   put item 2 of DxDy  into EspeedY
+   subtract 1 from numberOfDestinations
+end EnemyScreenTargetLoc
+
+--// generate a location to travel to based on the spawn point of the enemy, if low, travel high, if high, travel low.
+on EnemyTargetLoc
+   put the loc of me into enemyXY
+   put item 1 of enemyXY into eX
+   put item 2 of enemyXY into eY
+   put stackDepth() into HW
+   
+   put random(100) into RX
+   put random(100) into RY
+   if RX> 50 then 
+      put Random(item 1 of HW)+RX into destX
+   else
+      put RX*-1 into destX
+   end if
+   
+   if RY< 50 then 
+      put -50 into destY
+   else
+      put item 2 of HW +30 into destY
+   end if
+   
+   put   destX & comma & destY into targetLoc
+   put  destX-50, destY-50, destX+50, destY+50 into targetRect
+   
+   --// get delta to the target location
+   put DeltaToTarget(eX,eY,destX,destY) into DxDy
+   
+   subtract 1 from numberOfDestinations
+   
+   --// delta values modify  object location each loop
+   put item 1 of DxDy  into EspeedX
+   put item 2 of DxDy  into EspeedY
+end EnemyTargetLoc
+
+on PauseActivity
+   put true into bPaused
+end PauseActivity
+
+on ResumeActivity
+   put false into bPaused
+   --if soundActivated is false then put true into soundActivated
+   if enemyActivated is true then EnemyTravel
+end ResumeActivity
+
+--// repeats while enemy travels on tracjectory derived from targetLoc and enteres rectangle of targetRect
+on EnemyTravel
+   if bPaused is true then exit EnemyTravel
+   if the tool is not "browse tool" then put false into enemyActivated
+   if enemyActivated is false  then
+      DeactivateEnemy
+      exit enemyTravel
+   end if
+   -- travel to and check for arrivel to destination
+   --//destination is a virtual rectangle
+   ShapeShiftFunk
+   put the loc of me into enemyXY
+   
+   --// enemy is on screen, shoot at the player
+   if enemyXY is within stackRect then 
+      --// only play sound once because it loops
+      if soundActivated is false then
+         PlaySoundEffects "Enemy",(the short name of me)
+         put true into soundActivated
+      end if
+      --// only shoot occasionally
+      if bulletDelay < 20+random(50) then
+         add 1 to bulletDelay
+      else
+         send ActivateBullets &&  (the short Name of me) to stack (the mainStack of this stack) in 2 milliseconds
+         put 0 into bulletDelay
+      end if
+   end if
+   add EspeedX to item 1 of enemyXY
+   add  EspeedY to item 2 of enemyXY
+  
+   set the showName of me to true
+   
+   --// stop travel to/from   extreme distances
+   if item 1 of enemyXY > 2000 or item 2 of enemyXY > 2000 then
+      --view (The short name of me) && "Illegal exit at x" & item 1 of enemyXY  && "y"&item 2 of enemyXY &"@ xs" &EspeedX &&"ys"&EspeedY
+      DeactivateEnemy
+   end if
+   
+   if item 1 of enemyXY < -2000 or item 2 of enemyXY < -2000 then
+      --view (The short name of me) && "Illegal exit at x"&item 1 of enemyXY  && "y"&item 2 of enemyXY &"@ xs" &EspeedX &&"ys"&EspeedY
+      DeactivateEnemy
+   end if
+   
+   --// has enemy reached destination?
+   if enemyXY is within targetREct then 
+      
+      if numberOfDestinations > 1 then
+         --// stay on screen until destinations are used up
+         EnemyScreenTargetLoc
+      else
+         --// pick an exit target outside the screen
+         EnemyTargetLoc
+      end if
+      
+      if enemyXy is not within stackRect then
+         --// off screen? Deactivate
+         put false into enemyActivated  
+         DeactivateEnemy
+         put 0  into EspeedX
+         put 0  into EspeedY
+      end if
+   end if
+   set the loc of me to enemyXY
+   put IsMissileInRect(the short name of me) into MissileObj
+   if  MissileObj is not false then
+      MissileHit 
+      EnemyExplosions (enemyXY)
+      Send DeactivateMissile to graphic MissileObj
+   end if
+   if ObjectInPlayerRect(the short name of me) is true then
+      DeactivateEnemy 
+      CrashPlayer
+      PlaySoundEffects "PlayerCrash"
+      EnemyExplosions (enemyXY) 
+   end if
+   --- ShapeShiftFunk
+   if enemyActivated is true then send enemyTravel to me in 20 milliseconds
+end EnemyTravel
+
+
+--// sent by CheckCollision handler of stack, update score and DeactivateEnemy 
+on MissileHit
+   put 1+(EspeedX+EspeedY)*10 into mVal
+   UpdateScore mVal
+   DeactivateEnemy
+end MissileHit
+   
+   
+   --//  disables the enemy from repeating its travel script, sends message to remove name from activeEnemies list, returns to origin
+on DeactivateEnemy
+   put false into enemyActivated 
+   put false into soundActivated
+   put the OriginXY of me into OriginLoc
+   set the loc of me to originLoc
+   InactiveEnemy (the short name of me)
+   set the height of me to the originH of me
+   set the width of me to the originW of me
+end DeactivateEnemy
+
+
+   
+   
+   --// funky shape shifting stuff, has side effects that need to be worked out
+on ShapeShiftFunk
+   --some funky shape shifting stuff
+   put hMod*-1 into hMod
+   put wMod*-1 into wMod
+   set the height of me to (the height of me)+hMod
+   set the width of me to (the width of me)+wMod
+   put the properties of me into myProps
+   put the keys of myProps into myKeys
+   filter myKeys without "Arc*"
+   if angle is among the lines of myKeys then
+      put the angle of me into myAngle
+      if myAngle is not empty then
+         add 4 to myAngle
+         if myAngle >356 then put 0 into myAngle
+         set the angle of me to myAngle
+      end if
+   end if
+end ShapeShiftFunk
+
+
+on mouseEnter
+   
+end mouseEnter

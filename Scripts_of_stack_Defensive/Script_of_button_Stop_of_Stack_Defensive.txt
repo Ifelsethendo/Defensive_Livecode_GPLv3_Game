@@ -1,0 +1,5 @@
+--// script of  button "STOP" of stack "Defensive"
+on MouseEnter
+   set the tool to "pointer tool"
+   show group "Developer" 
+end MouseEnter

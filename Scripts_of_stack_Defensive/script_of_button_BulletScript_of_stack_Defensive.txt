@@ -1,0 +1,92 @@
+--// script of button "BulletScript" of stack "Defensive"
+--// Bullet Script October 05, 2021
+local dx,dy
+local bulletXY
+local activatedBullet=false
+local bulletSpeed
+local originLoc
+local stackRect="0,0,900,900"
+local bPaused=false
+local vx,vy
+local bulletStyle
+
+on RecordOrigin
+   put the loc of me into originLoc
+   set the originXY of me to originLoc
+end RecordOrigin
+
+--// Bullet targets player from Enemy location
+on PrepareToFire enemyName
+   if activatedBullet is true then exit PrepareToFire
+   if enemyName is empty then exit PrepareToFire
+   put the OriginXY of me into OriginLoc
+   put the loc of graphic enemyName into enemyXY
+   set the loc of me to enemyXY
+   put the loc of graphic "player" into playerXY
+   put "0,0," & stackDepth() into stackRect
+   
+   put deltaVal(item 1 of enemyXY, item 1 of playerXY)/100 into dx
+   put deltaVal(item 2 of enemyXY, item 2 of playerXY)/100 into dy
+   
+   put DistToScreen(dx,dy,item 1 of playerXY,item 2 of playerXY) into distXY
+   put (item 1 of distXY)/100 into vx
+   put (item 2 of distXY)/100 into vy
+   
+   set the style of me to item random(3) of "regular,rectangle,oval"  
+   
+   
+   put true into activatedBullet
+   put the loc of me into bulletXY
+   PlaySoundEffects "Weapon"
+   BulletFly
+end PrepareToFire
+
+on PauseActivity
+   put true into bPaused
+end PauseActivity
+
+on ResumeActivity
+   put false into bPaused
+   if activatedBullet is true then BulletFly
+end ResumeActivity
+
+--// bullet travels on trajectory provided by dx,dy
+on BulletFly 
+   if bPaused is true then exit BulletFly
+   if the tool is not "browse tool" then exit BulletFly
+   if activatedBullet is false then 
+      DeactivateBullet
+      exit BulletFly
+   end if
+   add dx*(vx) to item 1 of bulletXY
+   add dy*(vy) to item 2 of bulletXY
+   set the loc of me to bulletXY
+   if ObjectInPlayerRect(the short name of me) is true then
+      CrashPlayer
+      --// a little something special for the player
+      play soundDirectory() & "/PlayerCrash/PlayerCrash" & playerLives &".wav"
+      EnemyExplosions (bulletXY) 
+      put "" into activeBullets
+      StageGraphics "Bullet"
+      StageGraphics "Enemy"
+      DeactivateBullet
+   end if
+   
+   if bulletXY is within stackRect then 
+      send BulletFly  to me in 10 milliseconds
+      
+   else
+      DeactivateBullet
+   end if
+end BulletFly
+
+--// disables bullet travel script, returns to its origin point
+on DeactivateBullet
+   --   set the width of me to 8
+   --   set the height of me to 8
+   if the number of items of OriginLoc < 2 then put the OriginXY of me into OriginLoc
+   set the loc of me to originLoc
+   put false into activatedBullet
+   InactiveBullet (the short name of me) 
+end DeactivateBullet
+

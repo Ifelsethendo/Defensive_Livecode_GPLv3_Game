@@ -1,0 +1,21 @@
+--// script of card "Play" of stack "Defensive"
+on MouseEnter
+   if the visible of group "Developer" is true and the mouseloc is within the rect of group "Developer" then exit mouseEnter
+   if inProgress is true & bPaused is true then
+      if the tool is "browse tool" then ResumeGame
+      end if
+end MouseEnter
+
+on OpenCard
+   if the currentCard of this stack is  "Play" then 
+      loadingscreen "LOADING"
+      set the tool to "browse tool"
+      view "Play Card Open"&& the long time
+      put false into inProgress
+      if exists (group "OptionsGroup") then hide group "OptionsGroup"
+      if exists (group "PauseMenuGroup") then hide group "PauseMenuGroup"
+  
+      send InitFiles to stack (the mainStack of this stack) in 1 milliseconds
+   end if
+end OpenCard
+

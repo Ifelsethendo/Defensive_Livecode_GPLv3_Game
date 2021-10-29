@@ -1,0 +1,2659 @@
+--// STACK SCRIPT OF DEFENSIVE SHMUP GAME 10-28-2021
+--// GPL v3.0 Code
+--// Made with Livecode Community Edition 9.6.1
+--// Tutorial/Dev-Log here: https://forums.livecode.com/viewtopic.php?f=22&t=36334
+--// 
+--// set up basic game variables with values so can see how they are used later
+--// boolean
+local cheatMode=false,playerCrashed=false, inProgress=false, warpActivated=false
+
+--// integer  (ints)
+local score=0
+local playerLives=3, playerDirAngle=0, playerMoveDir=0, speedMult=2-- player ship variables
+local delayCheck=0, currentPlayer=1, songCount=0,  lastTime=-1  -- music player variables
+local lastParallax=0, cycleDelay=1, lastMissile=0, lastEnemy=0
+local bulletDelay=0, missileDelay=0, timeOfInit=0, timePassed=0, timeLevel=0
+
+--// integer item list
+local lastRect = "200,200,1210,800"-- smallish game window dimensions
+local stackSize ="0,0"
+local colorList="VioletRed,Red,OrangeRed,Orange,Yellow,LawnGreen,LimeGreen,Green,Cyan,CornflowerBlue,Blue,DodgerBlue,Magenta,SpringGreen,Pink, HotPink,Turquoise1,SkyBlue,Lavender,White"
+
+--// string single word
+local flyDir="right" -- direction player is flying, landscape scrolls opposite direction
+
+--// string lists
+local activeEnemies=empty
+local activeBullets=empty
+
+--// Local Variables introduced with  EnemyFactory/SHMUP_RESOURCE
+local lastBullet=0
+local activeMissiles=""
+local bulletStyle="Rectangle"
+local missileStyle="Rectangle"
+local xShift=1, yShift=1
+local stackRect="0,0,900,900"
+
+--// local variables introduced in stack version 09
+local outsideStackTime=0
+local bPaused=false
+local bWithinInit=false --// prevent freaky behavior if we mash init/play game buttons
+local escapeKeyBuffer=0
+
+--// local variables introduced in version 10
+local lastViewItems
+local currentLevel=1
+local scrollSpeedMult=3
+
+--// local variables introduced in stack 11
+local bFullScreen=false
+local currentMusicVolume=75
+
+--// local variables introduced in stack 12
+local bAntiAlias=true
+local bUseEffects=true
+local bEffectStatesStored=false
+
+--//local variables introduced in stack 13
+local bUseBackMountains=true
+
+--//lcoal variables introduced in stack 14
+local lastCard
+local lastMouseX
+local lastMouseY
+
+--//local variables introduced in stack 15
+local soundCount=0
+local soundEffectPlayers="" 
+local activeSoundPlayers=""
+local efectsRefreshDelay=0 
+local currentFXVolume=75
+local bMusicInitPassed=false
+local bSoundsInitPassed=false
+local bInitFilesComplete=false
+
+--// local variables introduce in stack 16
+local fxPlayersAvailable=0
+local bUseBackMountainsFX=false
+
+--//local variables introduced for release candidate 10-24-2021
+local WindowH,WindowW
+
+-- set some directory globals
+global gStackDirectory
+global gSoundDirectory
+
+--// pre-load music and sound effects before continuing with game init
+on InitFiles
+   view "InitFiles" && the long time
+   view "InitMusic" && the long time
+   InitMusic
+   view "InitSoundEffects" && the long time
+   InitSoundEffects
+   if  bMusicInitPassed is true and bSoundsInitPassed is true then
+      put true into bInitFilesComplete
+      view "InitGame" && the long time
+      InitGame 
+   end if
+end InitFiles
+
+
+--// stop all the enemy sounds, stop looping enemy sound
+on StopAllSoundEffects
+   ZeroFXPlayers "Enemy"
+   repeat with i = 1 to 20
+      put "Enemy"& i into eName
+      send PauseEnemySound to graphic eName
+   end repeat
+   put "" into activeSoundPlayers
+end StopAllSoundEffects
+
+--// play sound effects by type and loop for enemy sources
+on PlaySoundEffects tType,tSource
+   --view tType,tSource
+   put fxPlayersAvailable into tPlayersAvailable
+   put activeSoundPlayers into tActiveSounds
+   filter tActiveSounds with tType&"*"
+   filter tPlayersAvailable with tType&"*"
+   put the number of lines of tActiveSounds into pAct
+   put the number of lines of tPlayersAvailable into pAva
+   if pact+1 >= 20   then
+      ClearActiveSoundPlayers tType
+   end if
+   if pava is 0 then exit PlaySoundEffects
+   put random(pava) into nSound
+   put line nSound of tPlayersAvailable into tSoundFXPlayer
+   put cr & tSoundFXPlayer after activeSoundPlayers
+   filter activeSoundPlayers without empty
+   filter fxPlayersAvailable without tSoundFXPlayer
+   if exists (player tSoundFXPlayer) then
+      play player tSoundFXPlayer
+      set the lastTime of player tSoundFXPlayer to -1
+      if tType is  "Enemy" then
+         set the playerLoudness of player tSoundFXPlayer to currentFXVolume-(20+Random(50))
+         set the looping of player tSoundFXPlayer to true
+         set the FXplayer of graphic tSource to tSoundFxPlayer 
+      end if
+   end if
+end PlaySoundEffects
+
+--// stop sound players by type and reset their currentTime
+on ClearActiveSoundPlayers tType
+   put activeSoundPlayers into tPlayerList
+   filter tPlayerList with tType&"*"
+   put line 1 of tPlayerList into tclearedPlayer
+   if tclearedPlayer is empty then exit ClearActiveSoundPlayers
+  
+   if exists (player tClearedPlayer) then 
+      stop player tclearedPlayer
+      set the currentTime of player tclearedPlayer to 0
+      set the lastTime of player tclearedPlayer to -1
+      put cr & tClearedplayer after fxPlayersAvailable
+      filter fxPlayersAvailable without empty
+   end if
+   filter  activeSoundPlayers without tclearedPlayer
+end ClearActiveSoundPlayers
+   
+   --// UTILITIES
+   -- // set the  directory globals and go to the Title card
+on preOpenStack
+   put the short name of this stack into whatStack
+   if whatStack is (the short name of stack (The mainstack of this stack)) then
+      --put whatStack
+      set the name of card 1 of stack(the mainStack of this stack) to "Title"
+      put screenRect() into curRect
+      put item 3 of curRect/2 into cScreenX
+      put item 4 of curRect/2 into cScreeny
+      set the width of stack (the mainStack of this stack)  to floor(cScreenX*1.75)
+      set the height of stack (the mainStack of this stack) to floor(cScreenY*1.75)
+      set the loc of stack (the mainStack of this stack) to cScreenX,cScreenY
+      put item 1 of curRect into WindowW
+      put item 2 of curRect into WindowH
+      put  WindowW & comma & WindowH into newRez
+     set the newResolution of stack (the mainStack of this stack) to newRez   
+      UpDateStackSize
+      put StackDirectory() into gStackDirectory
+      put SoundDirectory() into gSoundDirectory
+      go card "Title"
+   end if
+   pass preOpenStack
+end preOpenStack
+
+--//arrowkey cycles music
+on arrowKey tkey
+   if the tool is not "browse tool" then exit arrowKey
+   if the currentCard of this stack is "Title" then
+      PlayButtonPressed
+      exit arrowKey
+   end if
+   --view tKey
+   switch tKey
+      case "left"
+         CycleMusic -1
+         break
+      case "right"
+         CycleMusic 1
+         break
+      case "up"
+         RandomSong
+         break
+      case "down"
+         --show group "Developer" 
+         --show group "DevControlButtonGroup" 
+         break
+   end switch
+   viewCurrentSong
+   pass arrowkey
+end arrowKey
+
+--// escape key handles pause and options menu
+on EscapeKey
+   if the currentCard of this stack is "Title" then
+      add 0 to escapeKeyBuffer
+      if the visible of group "Title" is true then
+         hide group "Title"
+         PauseMenu
+         exit escapeKey
+      end if
+      
+      if the visible of group "OptionsGroup" is true then
+         hide group "OptionsGroup"
+         TitleCardOpened
+      end if
+      
+      if the visible of group "PauseMenuGroup" is true then
+         hide group "OptionsGroup"
+         TitleCardOpened
+      end if
+      exit escapeKey
+   end if
+   add 1 to escapeKeyBuffer
+   switch escapeKeyBuffer
+      case 1
+      case 2
+         if bPaused is true then
+            if the mouseLoc is within the rect of this card then
+               put false into bPaused
+               put 0 into outsideStackTime
+               set the tool to "browse tool"
+               loadingscreen
+               ResumeGame
+            end if
+         else
+            put true into bPaused
+         end if
+         break
+      case 3
+         --set the tool to "pointer tool"
+         put 0 into escapeKeyBuffer
+         break
+   end switch
+end EscapeKey
+
+--// check for the mouse within the game window
+on CheckMouseInWindow
+   if the mouseloc is within the rect of this card then 
+      put 0 into outSideStackTime
+   else
+      add 1 to OutsideStackTime
+      if outSideStackTime > 60 then put true into bPaused
+   end if
+end CheckMouseInWindow
+
+
+-- // the folder path to the location of the stack file
+function StackDirectory
+   put word 2 the long name of stack (the mainStack of this stack) into myStack
+   replace quote with empty in myStack
+   set itemDel to "/" 
+   put item 1 to -2 of myStack into gStackDirectory
+   set the folder to gStackDirectory
+   return gStackDirectory
+end StackDirectory
+
+-- // the folder path to the location of the sounds folder
+function SoundDirectory
+   put word 2 the long name of stack (the mainStack of this stack) into myStack
+   replace quote with empty in myStack
+   set itemDel to "/" 
+   put item 1 to -2 of myStack & "/Data/Sounds" into gSoundDirectory
+   return gSoundDirectory
+end SoundDirectory
+
+--// view variables in button "viewer"
+on view a,b,c,d,e
+   if a is empty then put empty into lastViewItems
+   put lastViewItems into itemCheck
+   Replace comma with cr in itemCheck
+   put "" into newViewItems
+   
+   if word 1 to 2 of a is "current song" then filter itemCheck without "Current song*"
+   if b is empty then 
+      filter itemCheck without a
+      put a into newViewItems
+   else
+      put a,b into newViewItems
+   end if
+   if c is not empty then  put a,b,c into newViewItems
+   if d is not empty then put  a,b,c,d into newViewItems
+   if e is not empty then put a,b,c,d,e into newViewItems
+   replace cr with comma in itemCheck
+   put itemCheck into lastViewItems
+   if newViewItems is not empty or newViewItems is not "newViewItems" then
+      if lastViewItems is not empty then
+         put newViewItems & comma before lastviewItems      
+      else
+         put newViewItems into lastviewItems
+      end if
+   end if
+   put item 1 to 5 of lastViewItems  into lastViewItems
+   put lastViewItems  into viewableItems
+   replace comma with "  ||  " in viewableItems
+   set the label of button viewer to viewableItems
+   set the layer of button viewer to "top"
+end view
+
+--// unused, for saving log file from view handler, 
+--// custom property saving in view handler disabled, it was monstrous file size
+on clearView
+   put the viewMessages of this stack into vMes
+   put the short time & the short date into theSaveNums
+   replace space with empty in  theSaveNums
+   replace ":" with empty in  theSaveNums
+   replace "/" with "_" in  theSaveNums
+   put "file:" & stackDirectory() & "/log@" &&theSaveNums &".txt" into tFile
+   put vMes into URL tFile
+   set the viewMessages of this stack to ""
+end clearView
+
+--// find out if a variable is set to anything in Message Box
+on test aVar
+   do "put"  && aVar
+end test
+
+-- // the height and width of the stack window
+function StackDepth
+   put the height of stack (the mainStack of this stack) into WindowH
+   put the width of stack (the mainStack of this stack) into WindowW
+   if bFullScreen is true then 
+      put screenRect() into stackRect
+      put item 3 of  stackRect  into WindowW
+      put  item 4 of stackRect into WindowH
+   end if
+   put WindowW & comma & WindowH into tStackdepth
+   put "0,0," & tStackDepth into stackRect
+   put  WindowW & comma & WindowH into newRez
+   set the newResolution of stack (the mainStack of this stack) to newRez   
+   return tStackDepth
+end StackDepth
+
+-- // the center x,y coordinates inside the stack window
+function CenterScreen XY
+   put StackDepth() into HW
+   put floor(item 1 of HW/2) & comma & floor(item 2 of HW/2) into screenCenter
+   if XY is "x" then return floor(item 1 of HW/2)
+   if XY is "y" then return floor(item 2 of HW/2)
+   return screenCenter
+end CenterScreen
+
+
+-- // a simple loading screen show with message "show" or hide by default
+on LoadingScreen S
+   if exists(graphic "loading") is false then
+      send  createLoadingScreen to stack (the mainStack of this stack) in 0 milliseconds
+      wait 1 second
+   end if
+   updateStackSize
+   
+   set the opaque of graphic "loading" to true
+   if bPaused is true then 
+      set the opaque of graphic "Loading" to false
+   end if
+   --set the label of graphic "loading" to ""
+   set the snowName of graphic "loading" to false
+   put "0,0,"   & stackDepth() into stackRect 
+   set the rect of graphic "loading" to stackRect
+   set the loc of graphic loading to CenterScreen()
+   set the layer of graphic "loading" to top
+   put "show,Pause" into lsItems
+   unlock screen
+   if s is not empty and s is not among the items of lsItems then
+      put s into theString
+      put "displayString" into s
+   end if
+   switch S
+      case ""
+         hide graphic "loading" 
+         break
+      case "show" 
+         set the label of graphic "loading" to "Loading"
+         show graphic "loading"
+         break
+      case "displayString"
+         set the label of graphic "Loading" to theString
+         show graphic "Loading"
+         break
+   end switch
+   if the currentCard of this stack is "Play" then
+      if the visible of group "Developer" then set the layer of group "Developer" to Top
+   end if
+end LoadingScreen
+
+--// prepare pause menu group for showing 
+on PauseMenu
+   loadingscreen 
+   set the loc of group "PAUSEMenuGroup" to CenterScreen()
+   set the bottom of group "PAUSEMenuGroup" to item 2 of CenterScreen()+20
+   set the layer of group "PAUSEMenuGroup" to top
+   show group "PAUSEMenuGroup"
+end PauseMenu
+
+--//  puase the game and let the player choose options
+on  PauseGame
+   if bFullScreen is true then
+      set the rect of this stack to screenRect()
+      set the fullscreen of this stack to false
+      end  if
+   LoadingScreen "PAUSED"
+   PauseMenu
+   StopAllSoundEffects
+   put activeEnemies & cr & activeBullets &cr  & activeMissiles into activeObjects 
+   put cr & "explosion1" & cr & "explosion2"  & cr & "explosion3"  after activeObjects
+   filter activeObjects without empty
+   repeat  for each line AO in activeObjects
+      if exists (graphic AO) then send "PauseActivity" to graphic AO
+   end repeat
+end PauseGame
+
+-- // not pretty but simple loading screen graphic, there when you need it
+on createLoadingScreen
+   create graphic
+   set the style of the last graphic to rectangle
+   set the backgroundColor of the last graphic to 0,0,0
+   set the foregroundColor of the last graphic to 0,255,0
+   set the textSize of the last graphic to ""
+   set the name of the last graphic to "LOADING"
+   set the textStyle of the last graphic to "Bold"
+   set the textSize of the last graphic to 38
+   set the opaque of the last graphic to true
+   set the showName of the last graphic to true
+end createLoadingScreen
+
+--// give a value to timeOfInit
+on initTime
+   put the seconds into timeOfInit
+end initTime
+
+--// return to the game
+on ResumeGame
+   set the tool to "browse tool"
+   hide group "OptionsGroup"
+   hide group "PauseMenuGroup"
+   put false into bPaused
+   put 0 into escapeKeyBuffer
+   
+   LoadingScreen
+   put activeEnemies & cr & activeBullets &cr  & activeMissiles into activeObjects 
+   put cr & "explosion1" & cr & "explosion2"  & cr & "explosion3"  after activeObjects
+   filter activeObjects without empty
+   repeat  for each line AO in activeObjects
+      if exists(graphic AO) then send "ResumeActivity" to graphic AO
+   end repeat
+   put SoundPlayersAreLoaded() into tSoundsLoaded
+   if bFullSCreen is true then FixSoundsForFullScreen
+   put the seconds into timeOfInit
+   
+   send PlayGame to stack (the mainStack of this stack) in 10 milliseconds
+end ResumeGame
+
+
+on ResetDefaults
+   --// init local variables used in game
+   put 0 into score 
+   put 0 into bulletDelay
+   put 0 into missileDelay
+   put "" into activeEnemies
+   put "" into activeBullets
+   put "" into activeMissiles
+   put "" into activeSoundPlayers
+   put false into playerCrashed
+   put "right" into flyDir
+   put false into bPaused
+   put 0 into outsideStackTime 
+   put 0 into escapeKeyBuffer
+   put "" into lastViewItems
+   put 1 into  currentLevel
+   put false into inProgress
+end ResetDefaults
+
+--// set up the scene to play
+on InitGame
+   --// prevent the init being called multiple times without finishing
+   if bWithinInit is true then exit InitGame
+   put true into bWithinInit
+   
+   
+   LoadingScreen "Initializing"
+   view "InitGame" && the long time
+   lock screen
+   updateScore "reset"
+   --// cleanup
+   if exists(group "Dummy") then delete group "Dummy"
+   
+   --put true into cheatMode
+   put  the rect of stack (the mainStack of this stack) into lastRect
+   put "0,0,"& stackDepth() into stackRect
+   if the currentCard of this stack is not "Play" then exit InitGame
+   set itemDel to comma
+   hide group "OptionsGroup"
+   hide group "PauseMenuGroup"
+   
+   if the controlKey is down then
+      show group "Developer"
+   else
+      hide group "Developer"
+   end if
+   
+   ResetDefaults
+   
+   put the fullScreen of this stack into bFullSceen
+   
+   
+   ClearAllGameGraphics
+   MakeAllGameGraphics
+   --PresentAllGraphics  --// temporary while developing
+   
+   --// generate the foreground mountain group
+   InitForeground -- could randomize the front most mountain everytime if you like
+   if exists(group "Mgroup") then ResetForeGroundGroup
+   
+   --// generate the background mountains
+   InitBackgroundMountains
+   if exists(group "Backgroup") then ResetBackgroundGroup
+   if exists(group "Backgroup") then set the layer of group "Backgroup" to bottom
+   
+   InitPlayer
+   
+   --// memorize where everyone starts with originXY costume property
+   RecordGraphicOrigins
+   view "Applying Options" && the long time
+   --// apply options from the options group
+   OptionsApplied
+   
+   put item 1 of CenterScreen() into lastMouseX
+   put item 2 of CenterScreen() into lastMouseY
+   put SoundPlayersAreLoaded() into doubleCheckFX
+   put the seconds into timeOfInit
+   --// start music
+   if songCount is not 0 then
+      put -1 into  lastTime 
+      put random(songCount) into currentPlayer
+      put "Song" & currentPlayer into pName
+      set the playerLoudness of player pName  to currentMusicVolume
+      start player pName  
+      view "",""
+      viewCurrentSong
+   end if
+   view "PlayGame" && the long time
+   --// play
+   PlayGame 
+   put false into bWithinInit
+end InitGame
+
+--// create the 3 graphics that represent the player lives remaining
+on PlayerLivesIcons
+   if playerLives > 3 then put 3 into playerLives
+   repeat with i = 1 to playerLives
+      put "PlayerLives"& i into shipN
+      set the foregroundcolor of graphic shipN to Green
+      set the blendLevel of graphic shipN to 0
+   end repeat
+end PlayerLivesIcons
+
+--// - reset the player and ship count
+on InitPLayer
+   set the blendLevel of graphic "Player" to 0
+   put false into  playerCrash 
+   put 3 into  playerLives 
+   put CenterScreen() into pXY
+   set the loc of graphic "player" to pXY
+   set the loc of graphic "sMultBox" to pXY
+   put false into playerCrashed
+   PlayerLivesIcons
+end InitPLayer
+
+--// game over screen with score, wait 4 seconds then returns to title
+on GameOver
+   put false into inProgress
+   loadingScreen ("GAME OVER!" & cr & "Score:" & floor(score))
+  unlock screen
+   wait 4 seconds
+   set the label of graphic "loading" to ""
+   go Card "Title"
+end GameOver
+
+--// PlayGame is the GAME CONTROLLER, all loops should start here
+--// exceptions being the enemy, missile, bullet loops, they do their own things
+--// which should maybe be hanled differentlY? But how without blocking repeats?
+on PlayGame
+   --// many ways to escape the infinite loop to avoid a force quit
+   unlock screen
+   if  the currentCard of this stack is not "Play" then exit PlayGame
+   if the mouseLoc is within the rect of button "stopGame" then set the tool to "pointer tool"
+   if the tool is not "browse tool" then exit PlayGame
+   --// check if the mouse is inside the stack window
+   CheckMouseInWindow
+   --if the EscapeKey is down then EscapeKey
+   
+   --view outsideStackTime && bPaused
+   if bPaused is true then 
+      PauseGame 
+      exit Playgame
+   else
+      hide graphic "loading"
+   end if
+   
+   --// more enemies over time
+   put the seconds - timeOfInit into timePassed
+   put floor(timePassed/60)+1 into timeLevel -- every 1 minutes more enemies
+   if timeLevel > 10 then put 10 into timeLevel
+   if currentLevel < timeLEvel then
+      RandomizeEnemies
+      UpdateScore 1000
+      put timeLevel into currentLevel
+      view "LEVEL:" && timeLevel
+   end if
+   
+   
+   --// exit for game over
+   if playerLives  < 1 then  exit PlayGame
+   
+   --// update stack info before giving enemies, missiles, bullets info about it
+   if the rect of stack(the mainStack of this stack) is not lastRect then UpdateStackSize
+   
+   --// intended for use during pause screen/options menu, unused as of 10-06-2021
+   put true into inProgress 
+   
+   --// leave play mode until player has exited crashed state
+   if playerCrashed is true then  PlayerCrash
+   
+   --// actually play the game
+   if playerCrashed is false then 
+      --// player shoots
+      if the mouse is down then FireMissile 
+      --// ship moves
+      PlayerMove 
+      --// landsape scrolls
+      ScrollLandScape  
+      --// enemies attack!
+      ActivateEnemies 
+      
+      --upDateListLabels
+      if exists (group "WarpPointLeft" ) or exists (group "WarpPointLeft") then CheckWarp
+   end if
+   
+   --// if the music has stopped at the end of it's track play a new song
+   if songCount > 0 then
+      add 1 to delayCheck
+      if delayCheck> 100 then 
+         put 0 into delayCheck
+         UpdateMusic
+      end if
+   end if
+   
+   if the currentCard of this stack is "Play" then   
+      --// repeat this process
+      if the tool is "browse tool" then send PlayGame to stack (the mainStack of this stack) in 2 milliseconds
+   end if
+end PlayGame
+
+
+
+
+--// initialize game element setup
+on InitForeground
+   -- clear out previous mountains and group
+   if exists(graphic "mountains") then delete graphic "Mountains"
+   if exists(group "MGroup") then delete group "Mgroup"
+   -- create a dummy group because some weird stuff happens otherwise
+   create group
+   set the name of it to "dummy"
+   --view "Foreground" && the long time
+   -- create the mountain foreground
+   InitMountains
+   set the name of the last graphic to "mountains"
+   group graphic "mountains"  
+   set the name of the last group to "MGroup"
+   put the loc of graphic "mountains" into mLoc
+   InitWarpPoints  
+   -- set up scrolling group for landscape
+   ResetForegroundGroup
+   delete group "dummy"
+end InitForeground
+
+--//create background mountains group
+on InitBackgroundMountains
+   if exists(graphic "BackFrame") then delete graphic "BackFrame"
+   if exists(graphic "midGround") then delete graphic "midGround"
+   if exists(graphic "Background") then delete graphic "Background"
+   if exists(group "Backgroup") then delete group "Backgroup"
+   --//Create the back frame to control the group ...for some reason
+   create graphic
+   set the style of the last graphic to "Rectangle"
+   set the lineSize of the last graphic to 0
+   set the opaque of the last graphic to false
+   set the backgroundCOlor of the last graphic to white
+   set the name of the last graphic to "BackFrame"
+   --view "Midground" && the long time
+   --//background mountains #1
+   InitMountains
+   set the name of the last graphic to "MidGround"
+   set the bottom of graphic "MidGround" to the top of graphic "mountains"
+   set the blendLevel of  graphic "MidGround" to 40
+   --//more blue as we go back in virtual space
+   put random(128)+128 into mColor
+   set the foregroundColor of  graphic "MidGround" to 0,255,mColor
+   --view "Background" && the long time
+   --//background mountains #2
+   InitMountains
+   set the name of the last graphic to "Background"
+   set the bottom of graphic "Background" to the top of graphic "midGround"
+   put random(128)+128 into mColor
+   set the foregroundColor of  graphic "Background" to 128,128,mColor
+   //less visible in background
+   set the blendLevel of the last graphic to 60
+   groupMulti "Backgroup","graphic","BackFrame,MidGround,Background"
+end InitBackgroundMountains
+
+--// glow for mountains
+on MountainGraphicEffects depth,tObject
+   switch depth
+      case -1
+         set the outerGlow of graphic tObject to false
+         break
+      case 0
+         put random(128)+128 into mColor
+         set the foregroundColor of the last graphic to mColor,255,0
+         set the outerGlow of the last graphic to true
+         set the outerGlow["color"] of the last graphic to mColor,255,0
+         set the outerGlow["size"] of the last graphic to 15
+         set the outerGlow["spread"] of the last graphic to 63
+         break
+      case 1
+         put random(128)+128 into mColor
+         set the foregroundColor of  graphic tObject to 0,255,mColor
+         set the outerGlow["color"]  graphic tObject to 0,255,mColor
+         set the outerGlow["size"] of  graphic tObject to 18
+         set the outerGlow["spread"] of  graphic tObject to 55
+         break
+      case 2
+         --//more blue and less visible as we go back in virtual space
+         put random(128)+128 into mColor
+         set the foregroundColor of  graphic tObject to 128,128,mColor
+         set the outerGlow["color"] of  graphic tObject to 128,128,mColor
+         --// more haze
+         set the outerGlow["size"] of  graphic tObject to 25
+         set the outerGlow["spread"] of  graphic tObject to 83
+         break
+   end switch
+end MountainGraphicEffects
+
+
+--// group multiple items
+on GroupMulti groupName,objType,tItemString
+   repeat for each item i in tItemString
+      put objtype && quoted(i) && "and"& space after tGroupString
+   end repeat
+   --put tGroupString
+   do ("Group" && word 1 to -2 of tGroupString)
+   set the name of it to groupName
+end GroupMulti
+
+--// encapsulate strings in quotes
+function quoted tWords
+   return quote & tWords & quote
+end quoted
+
+--// create a vector graphic mountain range
+on InitMountains 
+   repeat with c = 1 to 200
+      put 50+random(50)+random(100)into nextX
+      add nextX to x
+      put random(20)- random(100) into y
+      put  x,y & cr after tPoints
+   end repeat
+   put line -1 of tPoints  after tPoints
+   create graphic
+   set the style of the last graphic to "line"
+   set the points of the last graphic to tPoints
+   put random(128)+128 into mColor
+   set the foregroundColor of the last graphic to mColor,255,0
+   set the loc of the last graphic to CenterScreen()
+   set the bottom of the last graphic to item 2 of StackDepth()
+end InitMountains
+
+--// since we delete the group when reinitializing the mountain, get the group back into shape
+on ResetForegroundGroup
+   put "0,0," & StackDepth() into mgroupRect
+   set the rect of group "MGroup" to mgroupRect
+   set the lockLoc of group "Mgroup" to true
+   set the hScrollbar of group "MGroup" to true
+   set the scrollBarwidth of group "Mgroup" to 0
+   put the width of graphic "mountains" into hW
+   set the hScroll of group "MGroup" to hW/2
+   set the radioBehavior of group "MGroup" to false
+   set the traversalOn of group "Mgroup" to false
+   set the threeD of group "Mgroup" to false
+   set the bottom of graphic "mountains" to item 2 of stackDepth()
+end ResetForegroundGroup
+
+--// set up the background group to not have default UI stuff, position everything
+on ResetBackgroundGroup
+   put "0,0," & StackDepth() into stackRect
+   put CenterScreen() into CSxy
+   set the rect of group "Backgroup" to stackRect
+   set the lockLoc of group "Backgroup" to true
+   set the radioBehavior of group "Backgroup" to false
+   set the traversalOn of group "Backgroup" to false
+   set the threeD of group "Backgroup" to false
+   put the height of graphic "MidGround" into MH
+   set the hScrollbar of group "Backgroup" to true
+   set the scrollBarwidth of group "Backgroup" to 0
+   set the loc of graphic "Background" to CSxy
+   add 180 to item 2 of CSXy
+   set the loc of graphic "MidGround" to CSxy
+   put the width of graphic "Background" into hW
+   set the hScroll of group "Backgroup" to hW/2
+   subtract 100 from item 2 of CSxy
+   --// backframe helps to position everything else, for whatever reason
+   set the rect of graphic "BackFrame" to  stackRect
+   set the loc of graphic "BackFrame" to  CSxy
+   set the lockloc of graphic "BackFrame" to true
+end ResetBackgroundGroup
+
+--// copy group "WarpPointSource" to create "WarpPointLeft" & "WarpPointRight", place into group "MGroup" and set to closed state
+on InitWarpPoints
+   --view "Warp" && the long time
+   --// reseet the background mountain scrolls...after we make them later
+   put stackDepth() into HW
+   put item 2 of HW into SH
+   put item 1 of HW into SW
+   -- WARP POINTS
+   lock screen
+   show group "WarpPointSource"
+   set the loc of group "WarpPointSource" to CenterScreen()
+   set the blendLevel of group "WarpPointSource" to 0
+   --// copy the warp template into "Mgroup"
+   copy group "WarpPointSource" to group "mGroup"
+   set the name of the last group of group "MGroup" to "WarpPointLeft"
+   copy group "WarpPointSource" to group "mGroup"
+   set the name of the last group of group "MGroup" to "WarpPointRight"
+   --// position the foreground landscape
+   put "0,0," & HW into stackRect
+   set the rect of group "mGroup" to stackRect
+   set the lockLoc of group "mGroup" to true
+   --// center the main mountains based on our screen based rectangle
+   set the loc of graphic "mountains" to item 1 of CenterScreen(), SH-Height of graphic "Mountains"/2
+   --// position the warp points
+   put the points of graphic "mountains" into tPoints
+   put item 1 of line 20 of tPoints into LeftWarpX
+   put item 1 of line -20 of tPoints into RightWarpX
+   --// place the warps at either far end of the mountains
+   set the loc of group "WarpPointLeft" to LeftWarpX,SH/2
+   set the loc of group "WarpPointRight" to RightWarpX,SH/2
+   --// fix sizes for screen
+   WarpsToScreenHeight
+   show group "WarpPointLeft"
+   show group "WarpPointRight"
+   --// put warps into closed state
+   set the blendLevel of Group "WarpPointLeft" to 0
+   set the blendLevel of Group  "WarpPointRight"  to 0
+   set the lineSize of graphic "WarpGate"of group "WarpPointLeft" to 0
+   set the lineSize of graphic "WarpGate"of group "WarpPointRight" to 0
+   --// hide the original warpoints group, used  later as warp exit point
+   hide group "WarpPointSource"
+end InitWarpPoints
+
+--// set heights at init & adjust warps if we changed screen height
+on WarpsToScreenHeight
+   --// fix the warp size for the stack size
+   put stackDepth() into HW
+   put item 2 of HW into SH
+   put item 1 of HW into SW
+   put "Source,Left,Right" into tItems
+   repeat for each item W in tItems
+      put "WarpPoint"& W  into tWarpgroup
+      set the width of graphic "WarpFrame" of group tWarpGroup to SH +200
+      set the height of graphic "WarpFrame" of group tWarpGroup  to SW
+      set the height of graphic "WarpGate" of group tWarpGroup  to SH-200
+      put the loc of graphic "WarpFrame" of group tWarpGroup  into wXY
+      put item 2 of CenterScreen() into item 2 of wXy
+      
+      set the loc of graphic "WarpFrame" of group tWarpGroup  to wXy
+      set the loc of graphic "WarpGate" of group tWarpGroup  to wXy
+      set the rect of group tWarpgroup to the rect of graphic "WarpFrame" of group tWarpGroup
+      set the bottom of group tWarpGroup to the bottom of group "MGroup"
+      set the bottom of graphic "WarpGate" of group tWarpGroup  to top of graphic "Mountains"
+      set the lockloc of group tWarpgroup to true
+   end repeat
+end WarpsToScreenHeight
+
+--// get all the entities off screen, zero out  all their sound player objects
+on GraphicsRestage
+   StageGraphics "Enemy"
+   StageGraphics "Explosion"
+   StageGraphics "Bullet"
+   StageGraphics "Missile"
+   ZeroFXPlayers 
+end GraphicsRestage
+
+-- // reset the Horizontal Scrolls of the landscape groups (Mgroup & Backgroup)
+on WarpJump
+   lock screen
+   GraphicsRestage
+   
+   if bUseBackMountains is true then
+      put the width of graphic "background" into bhW
+      set the hScroll of group "backgroup" to bhW/2
+      set the vScroll of group "Backgroup" to 152
+   end if
+   
+   put the width of graphic "mountains" into hW
+   set the hScroll of group "MGroup" to hW/2
+   show group "WarpPointSource"
+   set the blendLevel of group "WarpPointSource" to 0
+   set the loc of graphic "Player" to CenterScreen()
+   set the loc of graphic "WarpGate" of group "WarpPointSource" to CenterScreen()
+   set the lineSize of graphic "WarpGate" of group "WarpPointLeft" to 0
+   set the lineSize of graphic "WarpGate" of group "WarpPointRight" to 0
+   if flyDir is "right" then
+      put "left" into  flyDir
+      put item 1 of the mouseLoc+30 into lastMouseX
+      
+   else
+      put "right" into  flyDir
+      put item 1 of the mouseLoc-30 into lastMouseX
+      
+   end if
+   ClearActiveSoundPlayers "Warp"
+   PlaySoundEffects "Warp"
+   updateScore 1000
+   if playerLives < 3 then add 1 to playerLives
+   PlayerLivesIcons
+end WarpJump
+
+--// fade group "WarpPointSource" and push it away from the player after the jump
+on FadeWarpPoint
+   if flyDir is "left" then put 20 into tMov
+   if flyDir is "right" then put -20 into tMov
+   put the blendLevel of group "WarpPointSource" into BL
+   if BL < 100 then 
+      add 5 to BL
+      set the blendLevel of group "WarpPointSource" to BL
+      put the loc of group "WarpPointSource" into WPLoc
+      add tMov to item 1 of WPLoc
+      set the loc of group "WarpPointSource" to WPLoc
+   else
+      ClearActiveSoundPlayers "Warp"
+      hide group "WarpPointSource"
+   end if
+end FadeWarpPoint
+
+--// scroll the landscape in the opposite direction that our ship is facing
+on ScrollLandScape 
+   if the currentCard of this stack is not "Play" then exit ScrollLandScape
+   if the mouseLoc is not within the rect of graphic "sMultBox" then 
+      put floor(item  1 of stackDepth()/90) into scrollSpeedMult
+      put 6 into speedMult
+   else
+      put floor(item  1 of stackDepth()/95)into scrollSpeedMult
+      put 3 into speedMult
+   end if
+   
+   put the hScroll of group "Mgroup" into hScr
+   if flyDir is "right" then add 1*scrollSpeedMult to hScr
+   if flyDir is "left" then add -1*scrollSpeedMult to hScr
+   set the hScroll of group "Mgroup" to hScr
+   
+   --//testing alternate mountain scroll method 10-17-2021
+   put 2 into cycleDelay
+   if lastParallax < cycleDelay then 
+      add 1 to lastParallax
+   else
+      put 0 into lastParallax
+      
+      put the hscroll of group "Backgroup" into pHS
+      if flyDir is "right" then add 1*1.5 to pHS
+      if flyDir is "left" then add -1*1.5 to pHS
+      set the hscroll of group "BackGroup" to pHS
+   end if
+   
+   
+   if bUseBackMountains is true then
+      --// parallax background moves every other cycle
+      put 1 into cycleDelay
+      if lastParallax < cycleDelay then 
+         add 1 to lastParallax
+      else
+         put 0 into lastParallax
+         put the hscroll of group "Backgroup" into pHS
+         if flyDir is "right" then add 1*1.5 to pHS
+         if flyDir is "left" then add -1*1.5 to pHS
+         set the hscroll of group "BackGroup" to pHS
+      end if
+      
+      --// psuedo altitude adjustment effect
+      put the loc of  graphic "Player" into playerXY
+      put item 1 of the the loc of  graphic "background" into scrbaX
+      put item 1 of the  the loc of graphic "MidGround" into scrmidX
+      put item 2 of playerXY-item 2 of csXy into centerDelta
+      put item 2 of the originxy of  graphic "background" into bacY
+      put item 2 of  the originxy of graphic "MidGround" into midY
+      add floor(centerDelta*.05)*-1 to midY
+      set the loc of graphic "MidGround" to scrmidX,midY
+      add floor(centerDelta*.085)*-1 to bacY
+      set the loc of graphic "background" to scrbaX,bacy
+   end if --// end if bUseBackMountains
+end ScrollLandScape
+
+-- //  scroll the landscape while mouse is within the button rect, test for player to warp
+on PlayerMove
+   if the tool is not "browse tool" then exit PlayerMove
+   if the short name of this card is not "Play" then exit PlayerMove
+   if the visible of group "Developer" is true and the mouseloc is within the rect of group "Developer" then exit PlayerMove
+   set itemDel to comma
+   set the layer of graphic "Player" to top
+   put the loc of graphic "Player" into playerXY
+   set the loc of graphic "sMultBox" to playerXY
+   put item 1 of playerXY into playerX
+   put item 2 of playerXY into playerY
+   
+   put item 2 of StackDepth()-130 into bottomBorder
+   put item 1 of CenterScreen()-100 into leftBorder
+   put item 1 of CenterScreen()+100 into rightBorder
+   
+   --// virtual rectangles prevent the player from reacting if mouse is too close
+   --put   playerX-10 ,0, playerX+10, item 2 of StackDepth()  into mouseLocTargetV
+   put  0, playerY-10, item 1 of StackDepth(), playerY+10 into mouseLocTargetH
+   
+   --// if the mouse is not too close to the player X modify the angle and X movement
+   --if the mouseLoc is not within MouseLocTargetV then 
+      if abs(item 1 the mouseLoc - lastMouseX) > 20 then
+      
+      if item 1 of the mouseLoc < lastMouseX then
+         put -1 into pXM
+         put 180  into playerDirAngle
+         put "left" into flyDir 
+      end if
+      
+      if item 1 of the mouseLoc > lastMouseX then
+         put 1 into pXM
+         put 0 into playerDirAngle
+         put "right"into flyDir
+      end if
+      
+      if item 1 of the mouse is not lastMouseX then put item 1 of the mouseLoc into lastMouseX
+   end if
+   
+   --// up and down movement
+   if item 2 of the mouseLoc+1 < PlayerY then 
+      put -2 into playerMoveDir
+  else
+      put 2 into playerMoveDir
+   end if
+   put item 2 of the mouseLoc into lastMouseY
+   
+   --// mouseLoctargetH prevents the ship from jittering
+   if  the mouseLoc is within mouseLocTargetH then put 0 into playerMoveDir
+   
+   --// adjust player location intention
+   add  pXM*speedMult  to playerX
+   
+   --// prevent going too far left or right on screen
+   if  playerX  < LeftBorder then put LeftBorder into playerX
+   
+   --// prevent going too low on screen
+   if  playerX  > RightBorder then put RightBorder into playerX
+   
+   add playerMoveDir*speedMult to playerY
+   --// prevent going too high on screen
+   if  playerY  < 75 then put 75 into playerY
+   
+   --// prevent going too low on screen
+   if  playerY  > bottomBorder then put bottomBorder into playerY
+   
+   -- // now move the player and adjust angles
+   set the loc of graphic "Player" to playerX,playerY
+   set the angle of graphic "Player" to playerDirAngle
+   
+   --// change angle to match altitude intent
+   if playerMoveDir <0 then set the angle of graphic "Player" to playerDirAngle-10
+   if playerMoveDir >0  then set the angle of graphic "Player" to playerDirAngle+10
+   
+   --// additional hitbox so we can detect crash with enemy
+   set the loc of graphic "PlayerHitbox" to the loc of graphic "Player"
+end PlayerMove
+
+--// init the crash player state, "Playercrashed" loops an animation
+on CrashPlayer
+   put true into playerCrashed
+end CrashPlayer
+
+--// Player Destruction, player ship falls, spins, fades
+on PlayerCrash
+   if  playerCrashed is false or playerCrash is "null" then exit PlayerCrash
+   -- spin
+   put the Angle of graphic "Player" into tAng
+   add 10 to tAng
+   set the Angle of Graphic "Player" to tAng
+   -- fall
+   put the loc of graphic "Player" into tLoc
+   add 4 to item 2 of tLoc
+   set the loc of graphic "Player" to tLoc
+   if playerLives > 0 then 
+      put "PlayerLives"&playerLives into tShipToFade
+      set the foregroundcolor of graphic tShipToFade to Red
+      put the blendLevel of graphic tShipToFade into shpBL
+      add 1 to shpBL
+      set the blendLevel of graphic tShipToFade to shpBL
+      set the blendLevel of graphic "player" to shpBL
+   end if
+   --// Game Over
+   if the blendLevel of graphic "player" > 90 then
+      subtract 1 from playerLives
+      if playerLives < 1 then 
+         --play soundDirectory() & "/PlayerCrash.wav"
+         PlaySoundEffects "PlayerCrash"
+         GameOver
+         exit PlayerCrash
+      end if
+      --// Respawn Player
+      put "null" into playerCrashed
+      send PlayerRespawn  to stack (the mainStack of this stack ) in 2 milliseconds
+   end if
+end PlayerCrash
+
+--// respawn the playr ship object, resume game
+on PlayerRespawn
+   if playerCrashed is false and playerCrashed is not "playerCrashed" then exit PlayerRespawn
+   if playerLives < 1 then exit playerRespawn
+   GraphicsRestage
+   put "" into activeBullets
+   put "" into activeEnemies
+   put activeBullets & activeEnemies into tPot
+   send RandomSong to stack (the mainStack of this stack) in 1 milliseconds
+   set the blendLevel of graphic "Player" to 0
+   set the width of graphic "Player" to 24
+   set the height of graphic "Player" to 18
+   set the outerGlow["spread"] of graphic "player" to 34
+   set the outerGlow["size"] of graphic "player" to 34
+   set the angle of graphic "player" to 0
+   set the loc of graphic "Player" to CenterScreen() 
+   put false into playerCrashed
+   play soundDirectory() & "/Jump.wav"
+   send PlayGame to stack (the mainStack of this stack) in 3 milliseconds
+end PlayerRespawn
+
+
+
+--// test if player is within the rect of the warp groups, and activate/deactive the warp if necessary
+on CheckWarp
+   put the loc of graphic "Player" into playerXY
+   put false into warpActivated
+   
+   --// if we have warped, fade the warp object
+   if the visible of group "WarpPointSource" then
+      put true into warpActivated
+      fadeWarpPoint
+   end if
+   
+   --// left warp
+   if item 1 of playerXY < the right of group "WarpPointLeft" then 
+      set the lineSize of graphic "WarpGate" of group "WarpPointLeft" to (abs(item 1 of playerXY -the right of group "WarpPointLeft"))/10
+      if  item 1 of playerXY < item 1 of the loc of group "WarpPointLeft"  then WarpJump 
+      put true into warpActivated
+   end if
+   
+   --// right warp
+   if item 1 of playerXY > the left of group "WarpPointRight" then 
+      set the lineSize of graphic "WarpGate" of group "WarpPointRight" to (abs(item 1 of playerXY -the left of group "WarpPointRight"))/12
+      if  item 1 of playerXY > item 1 of the loc of group "WarpPointRight" then WarpJump 
+      put true into warpActivated
+   end if
+end CheckWarp
+
+
+
+
+--// BULK OF SCRIPT OF STACK "SHMUP_RESOURCE" ie, Enemy Factory & Missile Factory Below \\--
+function CenterScreen XY
+   put StackDepth() into HW
+   put floor(item 1 of HW/2) & comma & floor(item 2 of HW/2) into screenCenter
+   if XY is "x" then return floor(item 1 of HW/2)
+   if XY is "y" then return floor(item 2 of HW/2)
+   return screenCenter
+end CenterScreen
+
+--// activate explosion graphics at an x,y location
+on EnemyExplosions XY
+   --put SoundDirectory() &"/" & "Explode0" & random(3) & ".wav" into tSound
+   PlaySoundEffects Explode
+   repeat with i = 1 to 3
+      put i*10 into msW
+      put "Explosion" & i into tGrph
+      do "send explode &&" && XY &&"to graphic" && tGrph &&"in" && msw && "milliseconds"
+      --play tSound
+   end repeat
+end EnemyExplosions
+
+--// randomly activate the enemies, probably could set the random number high at start for easier levels, then decrease
+on ActivateEnemies
+   if the currentCard of this stack is not "Play" then exit ActivateEnemies
+   if playerCrashed is true or playerCrash is "null" then exit ActivateEnemies
+   put random(200) into rEnemy
+   if rEnemy < 21 and the number of lines of activeEnemies  < timeLevel then 
+      if "Enemy"&rEnemy is not among the lines of activeEnemies then  
+         put quote &  "Enemy"&rEnemy& quote into NextEnemy
+         do "send activateEnemy to graphic" && NextEnemy && "in 0 milliseconds"
+         if activeEnemies is empty or activeEnemies is "empty" then 
+            put "Enemy"&rEnemy  into activeEnemies
+         else
+            put cr & "Enemy"&rEnemy  after activeEnemies
+         end if
+         filter activeEnemies without empty
+      end if
+   end if
+end ActivateEnemies
+
+--// actvate  1 of 20 enemy bullets , add bullet name to activeBullets List signal bullet object script to fire
+on ActivateBullets enemyName
+   if the currentCard of this stack is not "Play" then exit ActivateBullets
+   if enemyName is empty then exit ActivateBullets
+   
+   if playerCrashed is true or playerCrash is "null" then exit ActivateBullets
+   if activeBullets is "empty" or activeBullets is "activeBullets" then put "" into activeBullets
+   put the number of lines of activeBullets into N
+   
+   if N+1 > 20 then put 0 into N
+   add 1 to N
+   
+   put "Bullet"&N into tActiveBullet
+   if tActiveBullet is not among the lines of activeBullets then
+      if activeBullets is empty then
+         put tActiveBullet into activeBullets
+      else
+         put cr& tActiveBullet after activeBullets
+      end if
+   end if
+   ClearActiveSoundPlayers "Bullet"
+   send PrepareToFire && enemyName to graphic tActiveBullet
+end ActivateBullets
+
+--// turn off a sound player object, set its time 0, remove it from active list
+on InactiveFXPlayer aName
+   put the FXPlayer of graphic aName into tPlayer
+   if exists(player tPlayer) then
+      stop player tPlayer
+   set the currentTime of player tPlayer to 0
+   filter activeSoundPlayers without tPlayer
+   put cr & tPlayer after fxPlayersAvailable
+   filter fxPlayersAvailable without empty
+   end if
+end InactiveFXPlayer
+
+
+--// clear bullet names from list
+on InactiveBullet bulletName
+   if the currentCard of this stack is not "Play" then exit InactiveBullet
+   filter activeBullets without bulletName
+   ClearActiveSoundPlayers "Bullet"
+end InactiveBullet
+
+--// clear Enemy names from list
+on InactiveEnemy eName
+   if the currentCard of this stack is not "Play" then exit InactiveEnemy
+   filter activeEnemies without eName  
+   InactiveFXPlayer eName
+end InactiveEnemy
+
+--// clear Missile names from list
+on InactiveMissile mName
+   if the currentCard of this stack is not "Play" then exit InactiveMissile
+   filter activeMissiles without mName
+   ClearActiveSoundPlayers "Missile"
+end InactiveMissile
+
+--// display enemies on screen and set the script of enemy graphics according to script stored in button
+on GetEnemies
+   put 0 into rows
+   put 0 into cols
+   put the script of button "EnemyScript" into eScript
+   repeat with n = 1 to 20
+      put  "Enemy" & n  into nEnemy
+      do "show graphic" && nEnemy
+      -- storing button script in stack for passing to objects without the button later
+      set the EnemyCode of stack (the mainStack of this stack) to eScript
+      do "set the script of graphic" && nEnemy && "to eScript"
+      do "set the activated of graphic" && nEnemy && "to false"
+      set the loc of graphic nENemy to 50+(50*Cols), 50+(Rows*50)
+      add 1 to Cols
+      if Cols > 4 then
+         put 0 into Cols
+         add 1 to Rows
+      end if
+   end repeat
+   put empty into activeEnemies
+end GetEnemies
+
+--// re-create all the game graphics (except mountains) 
+on MakeAllGameGraphics
+   MakeGraphicPlayer
+   MakeEnemies
+   MakeExplosions
+   MakeProjectiles "Missile"
+   MakeProjectiles "Bullet"
+   MakePlayerLives 1
+   MakePlayerLives 2
+   MakePlayerLives 3
+end MakeAllGameGraphics
+
+--//delete all the game graphics (except mountains)
+on ClearAllGameGraphics
+   put "Explosion,Enemy,Player,PlayerLives,Missile,Bullet" into grTypes
+   repeat for each item I in grTypes
+      ClearGraphics I
+   end repeat
+end ClearAllGameGraphics
+
+--// create the player object and player hit box
+on MakeGraphicPlayer
+   if exists (graphic "Player") then delete graphic "Player"
+   create graphic
+   set the style of the last graphic to "regular"
+   set the lineSize of the last graphic to 2
+   set the polySides of the last graphic to 3
+   set the foregroundColor of the last graphic to 0,255,0
+   set the outerGlow["color"] of the last graphic to 0,255,0
+   set the opaque of the last graphic to false
+   set the outerGlow["size"] of the last graphic to 18
+   set the outerGlow["spread"] of the last graphic to 78
+   set the width of the last graphic to 24
+   set the height of the last graphic to 18
+   set the loc of the last graphic to CenterScreen()
+   set the name of the last graphic to "Player"
+   StoreEffectStates
+   if exists (graphic "PlayerHitBox") then delete graphic "PlayerHitBox"
+   create graphic
+   set the style of the last graphic to "Rectangle"
+   set the opaque of the last graphic to false
+   set the linesize of the last graphic to 0
+   set the blendLevel of the last graphic to 0
+   set the foreGroundcolor of the last graphic to 0,0,0
+   set the width of the last graphic to 26
+   set the height of the last graphic to 26
+   set the loc of the last graphic to CenterScreen()
+set the name of the last graphic to "PlayerHItbox"
+end MakeGraphicPlayer
+
+--// create the 3 (or more) ship icons representign lives remaining
+on MakePlayerLives nLife
+   put "PlayerLives"&nLife into tObjectName
+   if exists (graphic tObjectName) then delete graphic tObjectName
+   create graphic
+   set the style of the last graphic to "regular"
+   set the lineSize of the last graphic to 1
+   set the polySides of the last graphic to 3
+   set the angle of the last graphic to 30
+   set the foregroundColor of the last graphic to 0,255,0
+   set the backgroundColor of the last graphic to 0,127,0
+   set the opaque of the last graphic to true
+   set the outerGlow["color"] of the last graphic to 0,255,0
+   set the outerGlow["size"] of the last graphic to 33
+   set the outerGlow["spread"] of the last graphic to 52
+   set the colorOverlay of the last graphic to false
+   set the width of the last graphic to 24
+   set the height of the last graphic to 24
+   set the top of the last graphic to 20
+   set the left of the last graphic to 250+(30*nLife)
+   set the name of the last graphic to tObjectName
+   StoreEffectStates
+end MakePlayerLives
+
+
+
+--// generate graphics for "Missiles" or "Bullets", etc with scrip dirived from button with their name &"Script"
+on MakeProjectiles aName
+   put 100+(chartoNum(char 1 of aName)*3) into charY
+   put aName&"Style" into styleVar
+   repeat with N = 1 to 20
+      create graphic
+      set  the loc of the last graphic to -320+(N*12),charY
+      set the originXY of the last graphic to the loc of the last graphic
+      do "set the style of the last graphic to" &&  styleVar
+      set the lineSize of the last graphic to 2
+      set the width of the last graphic to 8
+      set the height of the last graphic to 8
+      put aName&"Script" into codeButtonName
+      put the script of button codeButtonName into tScript
+      set the script of the last graphic to tScript
+      put item N of colorList into RGB
+      set the foregroundColor of the last graphic to RGB
+      set the outerGlow["color"] of the last graphic to RGB
+      set the outerGlow["size"] of the last graphic to random(28)+20
+      set the outerGlow["spread"] of the last graphic to random(28)+20
+      put  aName &N into tName
+      set the name of the last graphic to tName
+   end repeat
+   do "put" && styleVar && "into cStyle"
+   if cStyle is "line" then
+      put  aName&"Style"  into styleName 
+      UpdateGraphicStyle styleName,"Line"
+   end if
+   do "put 0 into last" & aName
+   StoreEffectStates
+end MakeProjectiles
+
+--// generate graphics for enemies, give them the script contanied in button "EnemyScript"
+on MakeEnemies
+   put 0 into Rows
+   put 0 into Cols
+   put the script of button "EnemyScript" into EnemyBehavior
+   repeat with N = 1 to 20
+      create graphic
+      set the script of the last graphic to EnemyBehavior
+      set the name of the last graphic to "Enemy"&N
+      set the style of the last graphic to "regular"
+      set the polySides of the last graphic to 3+random(10)
+      put  15+random(30) into eH
+      put  15+random(30) into eW
+      set the height of the last graphic to eH
+      set the width of the last graphic to eW
+      set the originH of the last graphic to eH
+      set the originW of the last graphic to eW
+      set the loc of the last graphic to -250+(50*Cols), -250+(Rows*50)
+      set the originXY of the last graphic to -250+(50*Cols), -250+(Rows*50)
+      put item N of colorList into tColor
+      set the foregroundColor of the last graphic to tColor
+      put random(10) into dashrand
+      if dashrand > 7 then
+         set the dashes of the last graphic to random(3)
+      end if
+      set the lineSize of the last graphic to random(4)
+      Glamour
+      add 1 to Cols
+      if Cols > 4 then
+         put 0 into Cols
+         add 1 to Rows
+      end if
+   end repeat
+   StoreEffectStates
+end MakeEnemies
+
+--// make explosion graphics 
+on MakeExplosions
+   put the script of button "ExplosionScript" into ExplosionScript
+   repeat with N = 1 to 3
+      create graphic
+      set the script of the last graphic to ExplosionScript
+      set the name of the last graphic to "Explosion"&N
+      set the style of the last graphic to "regular"
+      set the polySides of the last graphic to 4+random(10)
+      set the height of the last graphic to 20+random(20)
+      set the width of the last graphic to 20+random(20)
+      set the lineSize of the last graphic to 7+random(7)
+      set the loc of the last graphic to -150+(50*N), -250
+      set the originXY of the last graphic to the loc of the last graphic
+      set itemDel to comma
+      put random(number of items of colorList) into rColor
+      put item rColor  of colorList into tColor
+      set the foregroundColor of the last graphic to tColor
+      set the colorOverlay of the last graphic to false  ---///why is this true by default?
+      put random(10) into dashrand
+      if dashrand > 7 then
+         set the dashes of the last graphic to random(3)
+      end if
+      --Glamour
+   end repeat
+   StoreEffectStates
+end MakeExplosions
+
+--// regenerate enemy shapes and styles from random numbers
+on RandomizeEnemies
+   repeat with N = 1 to 20
+      put "Enemy"&N into tEnemy
+      set the style of graphic tEnemy to "regular"
+      set the polySides of graphic tEnemy to 3+random(10)
+      put  15+random(30) into eH
+      put  15+random(30) into eW
+      set the height of graphic tEnemy  to eH
+      set the width of graphic tEnemy  to eW
+      set the originH of graphic tEnemy  to eH
+      set the originW of graphic tEnemy to eW
+      put item N of colorList into tColor
+      set the foregroundColor of graphic tEnemy to tColor
+      put random(10) into dashrand
+      if dashrand > 7 then
+         set the dashes of graphic tEnemy to random(3)
+      end if
+   end repeat
+   set the lineSize of graphic tEnemy to random(4)
+   --Glamour
+   --StoreEffectStates
+end RandomizeEnemies
+   
+   --// set the xDir,yDir variables to  a value 1 or -1 for a string direction name given
+on DirToInt xDir, yDir
+   if xDir is empty then put flyDir into xDir
+   if xDir is "left" then  put -1 into xShift
+   if xDir is "right" then put 1 into xShift 
+   if yDir is "up" then  put -1 into yShift
+   if yDir is "down" then put 1 into yShift
+end DirToInt
+
+--// derive a line from any point x1,y1 to x2,y2 over 100 steps
+function pathToTarget x1,y1,x2,y2
+   repeat with i = 0 to 1 step 0.01
+      put  x1 +(x2 - x1) *i into newX
+      put y1 +(y2 - y1) *i into newY
+      put newX & comma & newY & cr after tPathToTarget
+   end repeat
+   return tPathToTarget
+end pathToTarget
+
+--// get the difference of two points along a line  x1,y1 to x2,y2 use for bullet trajcetories etc.
+function DeltaToTarget x1,y1,x2,y2
+   repeat with i = 0 to 1 step 0.01
+      put  x1 +(x2 - x1) *i into newX
+      put y1 +(y2 - y1) *i into newY
+      put newX & comma & newY & cr after tPathToTarget
+   end repeat
+   --// use the first and last line of the point list to determine the x,y delta
+   put line 1 of tPathToTarget into axy
+   put line -1 of tPathToTarget into bxy
+   put (item 1 of bxy - item 1 of axy)/100 into dx
+   put (item 2 of bxy - item 2 of axy)/100 into dy
+   return dx,dy
+end DeltaToTarget
+
+--// get a  point along the path (progress)  between an origin and a destination
+Function LERPVector origin,destination,progress
+   --//progress is percentage from 0 to 1
+   return source +(destination- origin) *progress 
+end LERPVector
+
+--// get the difference between point b and point a of a vector
+Function deltaVal a,b
+   return b-a
+end deltaVal
+
+--// find midpoint between two locations
+function MidPoint x1,x2,y1,y2
+   put floor((x1+x2)/2) into x3
+   put floor((y1+y2)/2) into y3
+   return x3,y3
+end MidPoint
+
+--// find the arbitrary endpoint along a line segment given two points
+function EndPoint x1,x2,y1,y2,magnitude
+   put floor((x1+x2)/2)+deltaVal(x1,x2)*magnitude into x3
+   put floor((y1+y2)/2)+deltaVal(y1,y2)*magnitude into y3
+   return x3,y3
+end EndPoint
+
+--// rotate the points of an object
+function rotatePoints x, y, cx, cy, tangle 
+   --// x,     //X coords to rotate - replaced on return
+   --// y,     //Y coords to rotate - replaced on return
+   --// cx,      //X coordinate of center of rotation
+   --// cy,      //Y coordinate of center of rotation
+   -- // angle)   //Angle of rotation (radians, counterclockwise)
+   put cos(tangle) into tcos 
+   put sin(tangle) into tsin  
+   put ((x-cx)*tcos - (y-cy)*tsin) + cx into Xout 
+   put ((x-cx)*tsin + (y-cy)*tcos) + cy into Yout
+   return xOut & comma & yOut
+end rotatePoints
+
+--// find the distance from an object to the screen edge based on direction of travel
+function DistToScreen deltax,delty,originx,originy
+   if deltax < 0 then 
+      put originx into distX 
+   else
+      put originX- item 1 of screenDepth() into distX
+   end if
+   if delta <0 then 
+      put originy into distY
+   else
+      put originY - item 2 of screenDepth() into distY 
+   end if
+   return distX,distY
+end DistToScreen
+
+--// if enemy, player, missiles, or bullets have interacted with each others rect then do game stuff.
+on CheckCollisions
+-- deprecated 10-14-2021
+end CheckCollisions
+
+--// check if an object is within the rect of the player hit box
+function ObjectInPlayerRect tObject
+   if the currentCard of this stack is not "Play" then return false
+   put the rect of graphic "PlayerHitBox" into PlayerRect
+   if the loc of graphic tObject is  within PlayerRect then return true
+end ObjectInPlayerRect
+
+--// return the name of a missile that  is within the rect of a target
+function IsMissileInRect tTarget
+   if the currentCard of this stack is not "Play" then return false
+   put the rect of graphic tTarget into tarRect
+   if the loc of graphic "Missile1" is within tarRect then return "Missile1"
+   if the loc of graphic "Missile2" is within tarRect then return "Missile2"
+   if the loc of graphic "Missile3" is within tarRect then return "Missile3"
+   if the loc of graphic "Missile4" is within tarRect then return "Missile4"
+   if the loc of graphic "Missile5" is within tarRect then return "Missile5"
+   if the loc of graphic "Missile6" is within tarRect then return "Missile6"
+   if the loc of graphic "Missile7" is within tarRect then return "Missile7"
+   if the loc of graphic "Missile8" is within tarRect then return "Missile8"
+   if the loc of graphic "Missile9" is within tarRect then return "Missile9"
+   if the loc of graphic "Missile10" is within tarRect then return "Missile10"
+   if the loc of graphic "Missile11" is within tarRect then return "Missile11"
+   if the loc of graphic "Missile12" is within tarRect then return "Missile12"
+   if the loc of graphic "Missile13" is within tarRect then return "Missile13"
+   if the loc of graphic "Missile14" is within tarRect then return "Missile14"
+   if the loc of graphic "Missile15" is within tarRect then return "Missile15"
+   if the loc of graphic "Missile16" is within tarRect then return "Missile16"
+   if the loc of graphic "Missile17" is within tarRect then return "Missile17"
+   if the loc of graphic "Missile18" is within tarRect then return "Missile18"
+   if the loc of graphic "Missile19" is within tarRect then return "Missile19"
+   if the loc of graphic "Missile20" is within tarRect then return "Missile20"
+   Return False
+end IsMissileInRect
+
+--// find out if any points of a rectangle is within the rect of another rectangle
+function RectInRect Object1,Object2
+   put Object1,Object2
+   put the loc of graphic object1 into OneLoc
+   put the rect of graphic object1 into OneRect
+   put the rect of graphic Object2 into TwoRect
+   if number of items of OneRect < 4 then return false
+   put item 1 of OneRect & comma & item 2 of OneRect into ToLe --// top left
+   put item 3 of OneRect & comma & item 4 of OneRect into BoRi --// bottom right
+   put item 1 of OneRect & comma & item 4 of OneRect into BoLe --// Bottome left
+   put item 2 of OneRect & comma & item 2 of OneRect into ToRi --// top right
+   if ToLe is within TwoRect then return true
+   if BoRi is within TwoRect then return true
+   if BoLe is within TwoRect then return true
+   if ToRi is within TwoRect then return true
+   if OneLoc is within TwoRect then return true
+   Return False
+end RectInRect
+
+--// delete all the graphics that share the given name
+on ClearGraphics aName
+   put the number of graphics of this stack into nG
+   repeat with i = 1 to nG
+      put the short name of graphic i of this stack & cr after grList
+   end repeat
+   filter grList without empty
+   filter grList with aName&"*"
+   if grList is not empty then
+      repeat for each line M in grList
+         delete graphic M of this stack
+      end repeat
+   end if
+end ClearGraphics
+
+--// present all the graphics with a given name on screen, update their script to the one contained in button aName&"Script"
+on GetGraphics aName
+   put 100+(chartoNum(char 1 of aName)*3) into chrY
+   put 12 into xDist
+   if aName is "explosion" then 
+      put 260 into chrY
+      put 50 into xDist
+   end if
+   put graphicCount(aName) into tLimit
+   repeat with N = 1 to tLimit
+      put  aName & N  into tName
+      do "put the script of button" &&quote & aName & "Script" &quote && "into tCode"
+      set the script of graphic tName to tCode
+      -- storing button script in stack for passing to objects without the button later
+      put aName&"Code" into cProp
+      do "set the" && cProp && "of stack (the mainStack of this stack) to tCode"
+      set the loc of the graphic tName to 20+(N*xDist),chrY
+      set the blendLevel of graphic tName to 0
+      do "send Deactivate"&aName && "to graphic" && quote & tName & quote
+   end repeat
+end GetGraphics
+
+
+--// set all the graphics of a given anem off screen, update their script to the one contained in button aName&"Script"
+on StageGraphics aName
+   put (chartoNum(char 1 of aName)*-2) into charY
+   put graphicCount(aName) into tLimit
+   repeat with N = 1 to tLimit
+      put  aName&N  into tName
+      set the loc of the graphic tName to (N*-2),charY    
+   end repeat
+   put "Send Deactivate"&aName && "to graphic"&& tName into tCom
+   do (tCom)
+   if aName is "Enemy" then 
+      put "" into activeEnemies
+   else
+      put "active"& aName &"s" into tList
+      do ("put empty into" && tList)
+   end if
+   ZeroFXPlayers aName
+end StageGraphics
+
+--// list all the sound player objects filtered by name
+function ListAllPlayers aName
+   put the number of players of this stack into N
+   repeat with i = 1 to n
+      put cr & the short name of player i of this stack after allPlayers
+   end repeat
+   sort allPlayers
+   filter allPlayers without empty
+   if aName is not empty then
+      filter allPlayers with aName&"*"
+   end if
+   return allPlayers
+end ListAllPlayers
+
+---//set the currentTime of players to 0, filter by aName
+on ZeroFXPlayers aName
+   if aName is "Missile" then put "PlayerLaser" into aName
+   --put activePlayers into tList
+   put ListAllPlayers() into tList
+   filter tList without "Song*"
+   if aName is not empty then filter tList with aName&"*"
+   repeat for each line P in tList
+      if exists(player P) then
+         stop player p
+         set the currentTime of player P to 0
+         set the looping of player P to false
+      end if
+   end repeat
+   filter activePlayers without aName&"*"
+   if aName is empty then put "" into activePlayers
+end ZeroFXPlayers
+
+
+--// count all the graphics that share a given name
+function GraphicCount aName
+   put the number of graphics of stack (the mainStack of this stack) into N
+   repeat with i = 1 to N
+      put the short name of graphic i of stack (the mainStack of this stack) & cr after allNames
+   end repeat
+   filter allNames with aName &"*"
+   sort allNames
+   filter allNames without empty
+   return (the number of lines of allNames)
+end GraphicCount
+
+--// present all the game graphics on to the screen
+on PresentAllGraphics
+   GetEnemies
+   GetGraphics "Explosion"
+   GetGraphics "Bullet"
+   GetGraphics "Missile"
+end PresentAllGraphics
+
+
+--// set the originXY custom property of all the graphics in the stack to their current position
+on RecordGraphicOrigins
+   put the number of graphics of this stack into N
+   repeat with i = 1 to N
+      set the originXY of graphic i of this stack to the loc of graphic i of this stack
+   end repeat
+end RecordGraphicOrigins
+
+--// launch missile graphic objects from the "player" graphic object with sound effects
+on FireMissile 
+   if playerCrashed is true or playerCrash = "null" then exit FireMissile
+   if the mouseLoc is not within the rect of stack (the mainStack of this stack) then exit FireMissile
+   if missileDelay < 1 then 
+      add 1 to missileDelay
+      exit FireMissile
+   else
+      put 0 into missileDelay
+   end if
+   if lastMissile+1 > 20 then put 0 into lastMissile
+   add 1 to lastMissile
+   put  "Missile"&lastMissile into nextMissile
+   
+   if activeMissiles is empty then 
+      put nextMissile into activeMissiles
+   else
+      if nextMissile is among the lines of activeMissiles then exit FireMissile
+      put cr & nextMissile after activeMissiles 
+   end if
+   
+   put "send ActivateMissile &&" && quote& flyDir & quote &&"to graphic" && quote & nextMissile &quote &&"in 0 milliseconds" into tCom
+   do tCom
+   --// make sure there is a player available
+   ClearActiveSoundPlayers "PlayerLaser"
+   PlaySoundEffects "PlayerLaser"
+   --play soundDirectory() & "/" & "playerLaser00" & random(5) & ".wav"
+end FireMissile
+
+
+--// convert color name to RGB --// 
+--// from https://lessons.livecode.com/m/2592/l/125746-translating-a-color-name-to-an-rgb-numeric-triplet
+function RGBFromColorName pColorName
+   local tRGBColor
+   if pColorName is not a color then
+      return "Error: not a color"
+   end if
+   
+   ## create a temporary object for the color transformation:
+   create invisible button
+   if the result is not empty then 
+      return "Error"
+   end if
+   
+   set the backgroundColor of last button to pColorName
+   
+   ## transform the color using the backgroundPixel trick:
+   set the backgroundPixel of last button to the backgroundPixel of last button
+   
+   ## the button's backgroundColor is now RGB:
+   put the backgroundColor of last button into tRGBColor
+   delete last button
+   
+   ## the create command automatically chose the pointer tool
+   ## change it back:
+   send "choose browse tool" to me in 10 milliseconds
+   return tRGBColor
+end RGBFromColorName
+
+
+--// UPDATE ...
+
+--// insert value miSpeed into line "local missileSpeed =" of script of button "MissileScript", copy script to objects named "Missile" & a number
+on UpdateMissileSpeed miSpeed
+   put the script of button "MissileScript" into tScript
+   put lineOffset("local missileSpeed",tScript) into N
+   set itemDel to "="
+   put miSpeed into item 2 of line N of tScript
+   set the script of button "MissileScript" to tScript
+   UpdateGraphicsScript "Missile"
+end UpdateMissileSpeed
+
+--// update the script of all graphic objects that share a name
+on UpdateGraphicsScript aName
+   put graphicCount(aName) into tLimit
+   repeat with N = 1 to tLimit
+      put aName&N  into tName
+      put aName&"Script" into tSCriptButton
+      put the script of button tSCriptButton into tScript
+      do "set the script of the graphic" && tName && "to tScript"
+   end repeat
+end UpdateGraphicsScript
+
+-// update the visual style of a graphic object to a given style "Line, oval, regular, etc" do special chevron for "line" style
+on UpdateGraphicStyle theVar,theStyle
+   do "put" && quote & theStyle & quote && "into" && theVar
+   replace "Style" with empty in theVar
+   repeat with N = 1 to 20
+      put theVar & N into nGraphic
+      set the style of graphic nGraphic  to theStyle
+      if theStyle is "Line" then
+         put xShift*2 into xMod
+         put yShift*2 into yMod
+         put the loc of graphic nGraphic into grLoc
+         put item 1 of grLoc -xMod & comma & item 2 of grLoc -yMod into p1
+         put item 1 of grLoc +xMod  & comma & item 2 of grLoc into p2
+         put item 1 of grLoc -xMod  & comma & item 2 of grLoc+yMod  into p3
+         put p1 & cr & p2 & cr & p3 into tPoints
+         set the points of graphic nGraphic to tPoints
+      end if
+   end repeat
+end UpdateGraphicStyle
+
+--// set the timeLevel to a value
+on UpdateTimeLevel tVal
+   put  tVal into timeLevel
+end UpdateTimeLevel
+
+--// update the score variable and field, clear it if reset is sent
+on UpdateScore tVal
+   if score is "reset" then 
+      put 0 into score
+   else
+      if tval is a number then add abs(tVal) to score
+   end if
+   put floor(score) into field "Score"
+end UpdateScore
+
+--// Developer info panels
+on upDateListLabels
+   if the visible of group "Developer" is false then exit upDateListLabels
+   set the label of button "activeEnemies" to activeEnemies
+   set the label of button "activeBullets" to activeBullets
+   set the label of button "activeMissiles" to activeMissiles
+   set the label of button "activeSoundPlayers" to activeSoundPlayers
+end upDateListLabels
+
+
+--// if the stack size has changed adjust various game elements to center screen
+on UpDateStackSize
+   put the rect of stack (the mainStack of this stack) into cRect
+   put  lastRect  into lRect
+   put the currentCard of this stack into curCard
+   --lock screen
+   if cRect is not lRect or lastCard is not curCard then
+      --view "UpDateStackSize" && the long time
+      put stackDepth() into HW
+      put CenterScreen() into CSxy
+      
+      set the width of button "Viewer" to item 2 of HW
+      set the loc of button "Viewer" to CSxy
+      set the width of button "Viewer" to item 1 of HW
+      set the left of button "Viewer" to 0
+      set the bottom of button "Viewer" to item 2 of  HW
+      
+      if the currentCard of this stack is "Play" then
+         if exists (group "MGroup") then    ResetForegroundGroup
+         if bUseBackMountains is true and exists( group "BackGroup") then ResetBackgroundGroup
+         if exists (graphic "Player") then set the loc of graphic "player" to CSxy
+         if exists (graphic "sMultBox") then  set the loc of graphic "sMultBox" to CSxy
+         set the bottom of group "Developer" to item 2 of of HW
+         set the right of group "DevControlButtonGroup" to item 1 of HW
+         --set the layer of group "DevControlButtonGroup" to top
+         --// fix the warps
+         if exists (Group "WarPointLeft")  and  exists (Group "WarPointRight")  then   WarpsToScreenHeight
+      end if
+      put cRect into  lastRect
+      put curCard into lastCard 
+   end if
+end UpDateStackSize
+
+--// if the song hasn't progressed in a while, play next one
+on UpdateMusic
+   if songCount < 1 then exit UpdateMusic
+   if the currentCard of this stack is not "Play" then exit UpdateMusic
+   put  songCount  into SC
+   put "Song" & currentPlayer into pName
+   put the currentTime of player pName into cTime
+   put cTime into nextTime
+   if lastTime is cTime and lastTime > 0 then 
+      stop player pName
+      set the currentTime of player pName to 0
+      put 0 into cTime
+      put random(songCount) into currentPlayer
+      put "Song" & currentPlayer into newpName
+      set the currentTime of player newPname to 0
+      put -1 into lastTime
+      set the playerLoudness of player newpName  to currentMusicVolume
+      start player newpName
+      put newPName into pName
+      view "",""
+      viewCurrentSong
+   end if
+   
+   put nextTime into lastTime 
+end UpdateMusic
+
+--// view the current song in the label of button 'viewer'
+on viewCurrentSong
+   if songCount < 1 then exit viewCurrentSong
+   put itemDel into oldDel
+   set itemDel to "/"
+   put "Song" & currentPlayer into pName
+   view ("Current Song:"&& item -1 of the fileName of player pName)
+   set itemDel to oldDel
+end viewCurrentSong
+
+--// if the song hasn't progressed in a while, play next one
+on CycleMusic tval
+   put  songCount  into SC
+   if SC < 1 then exit CycleMusic
+   put "Song" & currentPlayer into pName
+   put the currentTime of player pName into cTime
+   stop player pName
+   set the currentTime of player pName to 0
+   if currentPlayer+tVal <  1 then put songCount into currentPlayer
+   if currentPlayer+tVal > songCount then put 0 into currentPlayer
+   add tVal to currentPlayer
+   if currentPlayer < 1 then put 1 into currentPlayer
+   put "Song" & currentPlayer into newpName
+   set the currentTime of player newPname to 0
+   put cTime into nextTime
+   put -1 into lastTime
+   set the playerLoudness of player pName  to currentMusicVolume
+   start player pName
+end CycleMusic
+
+
+--// pick a random song to play
+on RandomSong
+   if songCount <1 then exit RandomSong
+   put  "Song" & currentPlayer into sName
+   stop player sName
+   put random(songCount) into currentPlayer
+   put "Song" & currentPlayer into newPname
+   set the playerLoudness of player newPname  to currentMusicVolume
+   start player newPname
+   put -1 into lastTime 
+   put 0 into  delayCheck 
+   viewCurrentSong
+end RandomSong
+
+--// F1 key toggles developer group
+on rawKeyDown tkey
+   if tKey is 65470 then 
+      if the currentCard of this stack is "Play" then
+         set the visible of  group "Developer" to not the visible of group "Developer"
+         end if
+   end if
+   pass rawkeyDown
+end rawKeyDown
+
+
+--// check if the music players are loaded with filesnames already
+function MusicPlayersAreLoaded
+      put listAllPlayers("Song") into songPlayers
+   filter songPlayers with "Song*"
+   put 0 into songCount
+   set itemDel to "/"
+   repeat for each line playerObjName in songPlayers
+      if the filename of player playerObjName is not empty then
+         put item -1 of the fileName of player playerObjName into theMusic
+         view "",theMusic   && the long time
+         add 1 to songCount
+      end if
+   end repeat
+   if songCount = nPlayers then return true
+   return false
+end MusicPlayersAreLoaded
+
+--// load the music which can take some time so is sent first in the message order before InitGame
+on InitMusic
+   LoadingScreen "LOADING MUSIC"
+   --lock screen
+   set the layer of button "viewer" to top
+   --// if the player objects already have songs, don't load files
+   if MusicPlayersAreLoaded is true then
+      put true into  bMusicInitPassed
+      exit InitMusic
+   end if
+   put  stackDirectory() &"/Data/Music" into tMusicFolder
+   --// there is no music directory, skip all the rest
+   if there is not a folder tMusicFolder then
+      put true into bMusicInitPassed
+      exit InitMusic
+   end if 
+   --// if there is a music folder ... 
+   set the folder to tMusicFolder
+   put FilteredMusicFiles(tMusicFolder) into musicFiles
+   filter musicFiles without "*txt"
+   put the number of lines of musicFiles into songCount
+   if songCount is   0 then
+      put true into bMusicInitPassed
+      exit InitMusic
+   end if 
+   repeat with i = 1 to songCount
+      put "Song" & i into playerObjName
+      put line i of musicFiles into theMusic
+      view "",theMusic   && the long time
+      put tMusicFolder  &"/" & theMusic into fPath
+      --//make new player objects if needed
+      if exists(player playerObjName) is false then
+         --// spawning offscreen to avoid the ugliness
+         set the left of the templatePlayer to item 1 of CenterScreen()
+         set the bottom of the templatePlayer to -20
+         create player
+         set the name of the last player to playerObjName
+         set the layer of the last player to bottom
+      end if
+      set the fileName of player playerObjName to fPath
+      set the currentTime of player playerObjName to 0
+      set the playLoudness of player playerObjName to currentMusicVolume
+      --// release time set the players off screen
+      set the loc of player  playerObjName to item 1 of CenterScreen(),-100
+   end repeat
+   put true into bMusicInitPassed
+end InitMusic
+
+--// clear the file names of sound/music players on the card
+on ClearPlayerFileNames
+   repeat with i = the number of players of this stack  down to 1 step -1
+      set the filename of player i of this stack to ""
+   end repeat
+   put 0 into songCount
+end ClearPlayerFileNames
+
+--// delete all the sound/music players on the card
+on ClearPlayers
+   repeat with i = the number of players of this stack  down to 1 step -1
+      delete player i of this stack 
+   end repeat
+   put 0 into songCount
+end ClearPlayers
+
+--//hide all the music sound players on the card
+on HidePlayers
+   repeat with i = the number of players of this stack  down to 1 step -1
+      hide player i of this stack 
+   end repeat
+end HidePlayers
+
+--//look in a folder and only return valid music/sound files in a list
+function FilteredMusicFiles  tfolder
+   set the folder to tFolder
+   put files() into tFiles
+   put "mp3,mp4,avi,aifc,cdda,aif,aiff,caf,m4a,wav,wave,bwf,amr,ac3,au,snd" into supportedFormats
+   set itemDel to comma
+   repeat for each item T in supportedFormats
+      put tFiles into filteredFiles
+      filter filteredFiles with "*." & T
+      if number of lines of filteredFiles is not 0 then put cr & filteredFiles after finalFileList
+   end repeat
+   sort finalFileList
+   filter finalFileList without empty
+   return finalFileList
+end FilteredMusicFiles
+
+--// attempts to fix mountains who have weird reverse cliff overhangs
+--// hasn't been used in a few weeks 10-17-2021
+on fixMountains w
+   put the points  of graphic w into fPoints
+   repeat with i =  number of lines of fPoints down to 2
+      put line i of fPoints into L
+      if L is not empty then 
+         put line i-1 of fPoints into K
+         if K is not empty then
+            if item 1 of L < item 1 of K then add 15 to item 1 of L
+            put  L & cr before Outpoints
+         end if
+      end if 
+   end repeat
+   put line 1 of fPoints & cr before Outpoints
+   set the points of graphic w to Outpoints
+end fixMountains
+
+--// when there are stars graphics in the background, attempt to fit them all in a viewable space along the play area
+on FitStars
+   put the width of graphic "Mountains" into sWide
+   put sWide-100 into SmallerSky
+   put the loc of graphic "Mountains" into moLoc
+   put the number of graphics of group "starrySkyGroup" into N
+   repeat with i = 1 to N
+      put the loc of graphic i of group "StarrySkyGroup" into xy
+      set the loc of graphic i of group "StarrySkyGroup" to random(SmallerSky), item 2 of xy
+   end repeat
+   set the width of group "StarrySkyGroup" to sWide+200
+   put the loc of group "StarrySkyGroup" into stXY
+   put item 1 of the loc of graphic "Mountains" into item 1 of stXY
+   set the loc of group "StarrySkyGroup" to stXY
+   set the left of group "StarrySkyGroup" to the left of graphic "Mountains"
+end FitStars
+
+
+-- // not pretty but simple loading screen graphic, there when you need it
+on createLoadingScreen
+   create graphic
+   set the style of the last graphic to rectangle
+   set the backgroundColor of the last graphic to 0,0,0
+   set the foregroundColor of the last graphic to 0,255,0
+   set the textSize of the last graphic to ""
+   set the name of the last graphic to "LOADING"
+   set the textStyle of the last graphic to "Bold"
+   set the textSize of the last graphic to 38
+   set the opaque of the last graphic to true
+   set the showName of the last graphic to true
+end createLoadingScreen
+
+
+--// excessive glowing effects for explosions which disappear before they can even be seen
+on Glamour
+   put item random(20) of colorList into tColor
+   put RGBFromColorName(tColor) into fgColor
+   add random(100) to item 1 of fgColor
+   add random(100) to item 2 of fgColor
+   add random(100) to item 2 of fgColor
+   set outerGlow of the last graphic to true
+   set the outerGlow["color"] of the last graphic to fgColor
+   set the outerGlow["spread"] of the last graphic to 24+random(40)
+   set the outerGlow["size"] of the last graphic to 24+random(40)
+   set colorOverlay of the last graphic to false
+   subtract random(100) from item 1 of fgColor
+   subtract random(100) from item 2 of fgColor
+   subtract random(100) from item 2 of fgColor
+   put random(10)into OpaRand
+   if OpaRand > 8 then
+      set the opaque of the last graphic to true
+      set the backgroundcolor of the last graphic to "White"
+      set innerShadow of the last graphic to true
+      set the innerShadow["color"] of the last graphic to fgColor
+      set the innerShadow["spread"] of the last graphic to 24+random(40)
+      set the innerShadow["size"] of the last graphic to 24+random(40)
+   end if
+end Glamour
+
+--// TITLE CARD SPECIFIC SCRIPTS
+-- // Look in the Music folder and load the song with 'theme' in the name
+on TitleCardOpened
+   set the tool to "browse tool"
+   if the currentCard of this stack is  "Title" then 
+      put "Title" into curCard
+      view "","Made with Livecode"," "
+      hide group "OptionsGroup"
+      hide group "PauseMenuGroup"
+      show group "Title"
+      put false into inProgress 
+      put false into bPaused
+      if exists(graphic "Loading") is false then  CreateLoadingScreen
+      UpdateStackSize
+      LoadingScreen
+      TitleCardidle
+      ThemeSong
+      unlock screen
+   end if
+end TitleCardOpened
+
+--// play a song with "theme" in its name for the title screen music
+on ThemeSong
+   put the folder into oldFolder
+   put  stackDirectory() &"/Data/Music/" into tFolder
+   if there is not a folder tFolder then exit ThemeSong
+   set the folder to tFolder
+   put FilteredMusicFiles(tFolder) into mFiles  
+   -- //  use "theme" in a song name to use in game
+   filter mFiles with "*theme*"  
+   if number of lines of  mFiles is not 0 then
+      put number of lines of mFiles into FN
+      -- // prevent game song fatigue with random
+      put line random(FN) of mFiles into theSong  
+      --set the loc of player "themeSong" of card "Title" to -100,-100
+      set the filename of player "themeSong" of card "Title" to tFolder &"/" & theSong 
+      set the currentTime of player "themeSong" of card "Title" to 0
+      set the playLoudness of player "themeSong" of card "Title" to 50
+      set the looping of player "Themesong" of card "Title" to true
+      set the playerLoudness of player themeSong  to currentMusicVolume
+      start player "themeSong" of card "Title"
+   end if
+end ThemeSong
+
+-- // loops to animate text effects &  keep Title group centered if we change stack size
+on TitleCardIdle
+   if the tool is not "browse tool" then exit TitleCardIdle
+   if the currentCard of this stack is not "Title" then exit TitleCardIdle
+   
+   lock screen
+   set the loc of group "Title" of card "Title" to CenterScreen()
+   unlock screen
+   if visible of group "OptionsGroup" is true or visible of group "PauseMenuGroup" is true then exit TitleCardIdle
+   TitleGlow
+   send TitleCardIdle to card "Title"  in 100 milliseconds
+end TitleCardIdle
+
+-- // throbbing color changing text effects
+on TitleGlow
+   put the glowInc of field "Title" into gInc
+   put the outerGlow["size"] of field "Title" into ogS
+   add gInc to ogs
+   if ogs > 35 then put -2 into gInc
+   if ogs <22 then put 2 into gInc
+   set the outerGlow["size"] of field "Title" to ogs
+   set the glowInc of field "Title" to gInc
+   put the outerGlow["color"] of field "Title" into rgb
+   add random(4)*ginc to item 1 of rgb
+   add random(4)*ginc to item 2 of rgb
+   add random(4)*ginc to item 3 of rgb
+   set the outerGlow["color"] of field "Title" to rgb
+end TitleGlow
+
+-- //  play a response sound to button press, show the loading screen ,  switch to card "Play"
+on PlayButtonPressed
+   --view "PlayButtonPressed" && the long time
+   play SoundDirectory() &"/" & "GameStart.wav" 
+   UpDateStackSize
+   LoadingScreen "show"
+   stop player "themeSong"
+   go card "Play"
+end PlayButtonPressed 
+
+--// apply choices made in the Options Menu Group
+on OptionsApplied
+   --// VOLUME
+   put the number of players of this stack into nPlayers
+   --// music volume
+   put the OptionsNewVolume of stack (the mainStack of this stack)into vVal
+   put vVal into currentMusicVolume
+   put ListAllPlayers("Song") into MusicPlayers
+   if the number of lines of MusicPlayers > 0 then
+      repeat for each line SoPl in MusicPlayers
+         set the playLoudness of player SoPl of this stack to vVal
+      end repeat 
+   end if
+   --// sound effects volume
+   put the OptionsNewFXVolume of stack (the mainStack of this stack)into fxvVal
+   put fxvVal into currentFXVolume
+   put ListAllPlayers() into FXPlayers
+   if the number of lines of FXPlayers > 0 then
+      put FXPlayers into soundEffectPlayers
+      filter soundEffectPlayers without "Song*"
+      filter soundEffectPlayers without empty
+      repeat for each line SfxPl in soundEffectPlayers
+         set the playLoudness of player SfxPl of this stack to fxvVal
+      end repeat
+   end if
+   
+   put the number of lines of soundEffectPlayers into soundCount
+   
+   
+   --// fullscreen
+   put the OptionsNewFullScreen of stack (the mainStack of this stack) into bFullscreen
+   --// windowsize
+   if bFullScreen is true then
+      put screenRect() into tStackRect
+      put item 3 of tStackRect into WindowW
+      put item 4 of tStackRect into windowH
+      put windowW & comma & WindowH into newRez
+      set the newResolution of stack (the mainStack of this stack) to newRez
+   end if
+   put the newResolution of stack (the mainStack of this stack) into newRez 
+   if newrez is not empty then
+      put item 1 of newrez into WindowW
+      put item 2 of newRez into windowH
+      set the width of this stack to item 1 of newRez 
+      set the height of this stack to item 2 of newRez 
+   end if
+   set the fullScreen of this stack to bFullscreen
+   
+   
+   set the fullScreen of this stack to bFullscreen
+   if bFullScreen is false then set the loc of stack (the mainStack of this stack) to item 3 of screenRect()/2,item 4 of screenRect()/2
+   
+   
+   send UpdateStackSIze to stack (The mainStack of this stack ) in 300 milliseconds
+   
+   if the currentCard of this stack is "Title" then
+      TitleCardOpened
+      exit OptionsApplied
+   end if
+   
+   put the UseAntialiasBool of stack (the mainStack of this stack) into bAntiAlias
+   UpdateAntiAlias
+   put the UseEffectsBool of stack (the mainStack of this stack) into bUseEffects
+   UpdateEffectStates
+   
+   put the UseBackMountains of stack (the mainStack of this stack) into bUseBackMountains
+   put the UseBackMountainsFX of stack (the mainStack of this stack) into bUseBackMountainsFX
+   if exists (group "Backgroup") then
+      if bUseBackMountains is false  then
+         hide group "Backgroup"
+      else
+         show group "BackGroup"
+         if bUseBackMountainsFX is true then
+            MountainGraphicEffects 1,"Midground"
+            MountainGraphicEffects 2,"Background"
+         else
+            set the outerGlow of graphic "MidGround" to false
+            MountainGraphicEffects -1,"Midground"
+            MountainGraphicEffects -1,"Background"
+         end if
+      end if
+   end if
+   if bFullSCreen is true then FixSoundsForFullScreen
+   --// resume or init for play card
+   if the currentCard of this stack is "Play" then
+      if inProgress is true and bWithinInit is false then 
+         ResumeGame
+      end if
+   end if
+end OptionsApplied
+
+
+--// full screen breaks sounds somehow? this is a dirty fix
+on FixSoundsForFullScreen
+   LoadingScreen "Fixing Sounds"
+   put SoundPlayersAreLoaded() into bSoundsLoaded
+   put listAllPlayers() into tList
+   filter tList without "Song*"
+   repeat for each line L in tList
+      set the currentTime of player L to 0
+      set the playLoudness of player L to 0
+      set the looping of player L to false
+   end repeat
+   wait 100 milliseconds 
+   repeat for each line LT in tList
+      start player LT
+   end repeat
+   repeat for each line L in tList
+      set the playLoudness of player L to currentFXvolume
+      set the currentTime of player L to 0
+   end repeat
+   LoadingScreen
+end FixSoundsForFullScreen
+
+--// toggle anti-alias drawing features
+on UpdateAntiAlias
+   put the number of graphics of this stack into NUC
+   repeat with i = 1 to NUC
+      put the name of graphic i of this stack into tContr
+      set the Antialiased of graphic i to bAntiAlias
+   end repeat
+end UpdateAntiAlias
+
+--// toggle graphic effects on objects
+on UpdateEffectStates
+   put "outerGlow,innerShadow,colorOverlay,innerGlow,dropShadow" into theEffects
+   put the number of graphics of this stack into NUC
+   if bUseEffects is false then
+      repeat with i = 1 to NUC
+         repeat for each item e in theEffects
+            do "set the" && e && "of graphic i to false"
+         end repeat
+      end repeat         
+   end if
+   
+   if bUseEffects is true then
+      repeat with i = 1 to NUC
+         put the short name of graphic i  into tObject
+         put the EffectStates of graphic i  into stateList 
+         if  number of lines of statesList  > 0 then
+            set itemDel to "="
+            repeat for each line SL in stateList
+               do "set the" && item 1 of SL && "of graphic i to"&& item 2 of SL 
+            end repeat
+         end if
+      end repeat   
+   end if
+end UpdateEffectStates
+
+--// store the effect states on objects for turning on/off later
+on StoreEffectStates
+   put the number of graphics of this stack into NUC
+   repeat with i = 1 to NUC
+      put  the short name of graphic i  into tObject
+      put IndexEffectsValues(tObject) into tStates
+      set the EffectStates of graphic i to tStates
+   end repeat
+   put true into bEffectStatesStored
+end StoreEffectStates
+
+--// get a list of all the graphic effects values of an object
+function IndexEffectsValues aName
+   put "outerGlow,innerShadow,colorOverlay,innerGlow,dropShadow" into theE
+   put "graphic" && quote & aName & quote into tObject
+   --//Puts
+   repeat for each item E in theE
+     
+      do "put the" && E && "of" &&  tObject &&"into tProp"
+      put the keys of tProp into tKeys
+      if tKeys is not empty then
+         repeat for each line K in tKeys
+            put "put the" && E &"[" & quote & K & quote &"] of" && tObject && "into AVal" && cr after allKeys
+         end repeat
+      end if
+   end repeat 
+   --return allKEys
+   
+   --//Sets
+   repeat for each line A in allKeys 
+      do A
+      put A into B
+      replace "put" with "Set" in B
+      replace "into AVal" with "to" && AVal in B
+      put B & cr after Cs
+   end repeat
+   --return cs
+   
+   --//short hand
+   repeat for each line D in Cs
+      put word 3 of D & "=" & Word -1 of D  & cr After EF
+   end repeat
+   return EF
+end IndexEffectsValues
+
+--//Prepare the optons menu group to match the current settings
+on OptionsGroupSetUp
+   unlock screen
+   --// screen size options
+   put  screenRect() into fullscreenSize
+   repeat with i = 1 to 3 step .2
+      put floor(item 3 of fullScreenSize /i) into wOpt
+      put floor(item 4 of fullScreenSize /i) into hOpt
+      put wOpt & " x " & hOpt & cr after screenOptions
+   end repeat
+   set the text of button "ScreenSizesMenu" to line 1 to -1 of  screenOptions
+   set the label of button "ScreenSizesMenu" to "Screen Size"
+   put stackDepth() into curScreenSize
+   replace comma with " x " in curScreenSize
+   put curScreenSize into field "ScreenSizeValueLabel"
+   
+   --// fullscreen
+   set the hilite of button "fullScreenToggle" to bFullScreen
+   
+   --// music volume
+   put currentMusicVolume into vVal
+   put the left of graphic "VolumeSlider"+vVAl into volX
+   set the loc of graphic "VolumeSliderRectangle" to  volX,item 2 the loc of graphic  "VolumeSlider"
+   put vVal into field "MusicVolumeValue"
+   
+   
+   --// sound effects volume
+   put currentFXVolume into FXVal
+   put the left of graphic "FXVolumeSlider"+FXVal into FXvolX
+   set the loc of graphic "FXVolumeSliderRectangle" to  FXvolX,item 2 the loc of graphic  "FXVolumeSlider"
+   put FXVal into field "FXVolumeValue"
+   
+   
+   --// antialias
+   set the hilite of button "AntiAliasToggle" to bAntiAlias
+   --// use effects
+   set the hilite of button "UseEffectsToggle" to bUseEffects
+   
+   --//BackMountains
+   set the hilite of button "BackMountainsToggle" to bUseBackMountains
+   set the hilite of button "BackMountainsFXToggle" to bUseBackMountainsFX
+   
+   set the layer of group "OptionsGroup" to top
+   set the loc of group "optionsGroup" to CenterScreen()
+   loadingScreen 
+   show group "OptionsGroup"
+end OptionsGroupSetUp
+
+--// respond to QUIT button click on stack "QuitStack" by quitting the mainStack
+on QuitCommand
+   Close stack "QuitStack"
+   Quit
+end QuitCommand
+
+--// check if all the sound players have file names already
+function SoundPlayersAreLoaded
+   put the number of players of this card into nPlayers
+   if nPlayers is  0 then return false
+   put 0 into soundCount
+   set itemDel to "/"
+   --// first get a list of the playerNames
+  put ListAllPlayers() into soundPLayerNames
+   filter soundPLayerNames without empty
+   filter soundPLayerNames without "Song*"
+   --// iterate over soundEffectPlayers to see if they have filnames
+   repeat for each line playerObjName in soundPLayerNames
+      if exists(player playerObjName) is false then next repeat
+      if the filename of player playerObjName is not empty then
+         put item -1 of the fileName of player playerObjName into theSound
+         set the currentTime of player playerObjName to 0
+         put theSound & cr after allSounds
+         view "",theSound  && the long time
+         add 1 to soundCount
+      end if
+   end repeat  
+   filter soundPLayerNames without empty
+   put the number of lines of soundPLayerNames into soundplayerCount
+   if soundCount = soundplayerCount and soundCount is not 0 then
+      put soundPLayerNames into soundEffectPlayers
+      put soundPLayerNames into fxPlayersAvailable
+      return true
+   end if
+   return false
+end SoundPlayersAreLoaded
+
+--// load all sounds in an associated directory path  to players
+on InitSoundEffects
+   loadingScreen "LOADING SOUNDS"
+   --lock screen
+   set itemDel to "/"
+   --// if the player objects already have songs, don't load files
+   if SoundPlayersAreLoaded() is true then
+      view "all sound players preloaded" && the long time
+      put true into  bSoundsInitPassed
+      exit InitSoundEffects
+   end  if
+   put  soundDirectory() into tSoundsFolder
+   --// there is no music directory, skip all this handler
+   if there is not a folder tSoundsFolder then 
+      put true into  bSoundsInitPassed
+      exit InitSoundEffects
+   end  if
+   
+   
+   set the cursor to busy
+   --// if there is a sounds  folder ... 
+   set the folder to tSoundsFolder
+   put folders() into tSoundsSubDirs
+   filter tSoundsSubDirs without ".."
+   if number of lines of tSoundsSubDirs is 0 then
+      put true into  bSoundsInitPassed
+      exit InitSoundEffects
+   end if
+   --// iterate over each sub folder of the Sounds folder
+   repeat for each line SD in tSoundsSubDirs
+      put soundDirectory() & "/"& SD into curSubDir
+      set the folder to curSubDir
+      put FilteredMusicFiles(SD) into tSoundFiles
+      put curSubDir & cr after allcsds
+      put the number of lines of tSoundFiles into tFilesCount
+      if tFilesCount is 0 then next Repeat
+      set itemDel to comma
+      put 0 into playersOfTypeSD
+      --// why not 20 players for everything?
+      --// because delay in loading card before init
+      if SD is "Enemy" or SD is "Bullet"  then put 1 into tPlimit
+      if SD is "Warp" or SD is "Explode" then put 1 into tPLimit
+      if  SD is "PlayerLaser" then put 10 into tPLimit
+      put 0 into pCounter
+      repeat while  playersOfTypeSD < tPlimit
+         --// iterate over each file in the subfolder 
+         repeat with i = 1 to tFilesCount
+            --//player named after folder and file number
+            add 1 to playersOfTypeSD
+            put SD &   playersOfTypeSD into playerObjName
+            put cr & playerObjName  after allNames
+            put line i of tSoundFiles into theSound
+            view "",theSound, playerObjName  && the long time
+            put curSubDir  &"/" & theSound into fPath
+            
+            --//make new player objects if needed
+            if exists(player playerObjName) is false then
+               --// spawning offscreen to avoid the ugliness
+               set the left of the templatePlayer to item 1 of CenterScreen()
+               set the bottom of the templatePlayer to -20
+               create player
+               set the name of the last player to playerObjName
+               set the layer of the last player to bottom
+            end if
+            --put the number of players of this stack
+            set the fileName of player playerObjName to fPath
+            set the currentTime of player playerObjName to 0
+            set the playLoudness of player playerObjName to currentFXVolume
+            set the lastTime of player playerObjName to -1
+            put cr & playerObjName after   soundEffectPlayers
+            --// setting it here, for now, just so we can see that it was made
+            set the loc of player  playerObjName to item 1 of CenterScreen(),-100
+         end repeat
+      end repeat 
+   end repeat
+   
+   filter soundEffectPlayers without empty
+   put the number of lines of soundEffectPlayers into soundCount
+   view "","All" && soundCount && "sounds loaded" && the long time
+   set the cursor to arrow
+   put true into  bSoundsInitPassed
+end InitSoundEffects
+
+--//  empty the "Play" Card of entities and objects , save the stack and quit
+on DevExit
+   set the tool to "pointer tool"
+   if the currentCard of this stack is "Play" then
+      clearPlayers
+      ClearAllGameGraphics
+      --MakeAllGameGraphics
+      if exists (group "MGroup") then delete group "Mgroup"
+      if exists (group "Backgroup") then delete group "Backgroup"
+   end if
+   set the folder to stackDirectory()
+   put the short time & the short date into theSaveNums
+   replace space with empty in  theSaveNums
+   replace ":" with empty in  theSaveNums
+   replace "/" with "_" in  theSaveNums
+   put "ShmupTutorialStack_"&theSaveNums &".livecode" into tStackPath
+   save stack (the mainStack of this stack) as tStackPath
+   answer "Saved. Quit?" with "No" or "Yes"
+   if it is "Yes" then send QuitCommand to stack (the mainstack of this stack) in 5 seconds
+end DevExit
+
+
